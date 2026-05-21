@@ -51,9 +51,10 @@ def validate_file(path: Path) -> bool:
     print("    --- Bridge Payload Summary ---")
     payload = build_bridge_payload(chip)
     es = payload["emotional_state"]
+    volatility = payload["personality_ext"]["emotions_config"]["mood_volatility"]
     print(f"    mood: {es['mood']} | intensity: {es['intensity']} | "
-          f"volatility: {es['volatility']}")
-    hints = payload["guidance_hints"]
+          f"volatility: {volatility}")
+    hints = payload["guidance"]
     print(f"    pace: {hints['response_pace']} | tone: {hints['tone_shape']} | "
           f"verbosity: {hints['verbosity']}")
 
