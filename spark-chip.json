@@ -4,7 +4,7 @@
   "chip_name": "spark-personality-chip-labs",
   "domain": "personality",
   "version": "0.1.0",
-  "capabilities": ["evaluate", "suggest", "packets", "personality"],
+  "capabilities": ["personality"],
   "commands": {
     "personality": ["python", "-m", "personality_engine.spark_hook", "personality"]
   },
