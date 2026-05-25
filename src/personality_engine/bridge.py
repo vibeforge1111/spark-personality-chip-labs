@@ -194,6 +194,8 @@ def read_bridge(bridge_path: Path = BRIDGE_FILE) -> Optional[dict]:
     if ts:
         try:
             written = datetime.fromisoformat(ts)
+            if written.tzinfo is None:
+                written = written.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - written).total_seconds()
             if age > ttl:
                 payload["_stale"] = True
