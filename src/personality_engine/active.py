@@ -174,7 +174,9 @@ def _find_and_load(
         p = Path(personality_path)
         if p.exists():
             try:
-                return load_personality(p)
+                chip = load_personality(p)
+                if chip.id == personality_id:
+                    return chip
             except (ValueError, FileNotFoundError):
                 pass
 
