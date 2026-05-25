@@ -118,6 +118,39 @@ class TestGetActivePersonality:
         assert chip is not None
         assert chip.id == "test-active"
 
+    def test_env_var_change_is_not_hidden_by_cache(self, tmp_path):
+        """Changing SPARK_PERSONALITY should take effect immediately."""
+        import yaml
+
+        for chip_id, name in (("first-chip", "FirstChip"), ("second-chip", "SecondChip")):
+            chip_file = tmp_path / f"{chip_id}.personality.yaml"
+            chip_file.write_text(
+                yaml.dump(
+                    {
+                        "schema": SCHEMA_VERSION,
+                        "identity": {
+                            "id": chip_id,
+                            "name": name,
+                            "archetype": "builder",
+                        },
+                        "traits": {"openness": 0.70},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        with patch("personality_engine.active.ACTIVE_FILE", tmp_path / "nope.json"):
+            with patch("personality_engine.active.CACHE_FILE", tmp_path / "active_cache.json"):
+                with patch.dict(os.environ, {"SPARK_PERSONALITY": "first-chip"}):
+                    first = get_active_personality(search_paths=[tmp_path])
+                    assert first is not None
+                    assert first.id == "first-chip"
+
+                with patch.dict(os.environ, {"SPARK_PERSONALITY": "second-chip"}):
+                    second = get_active_personality(search_paths=[tmp_path])
+                    assert second is not None
+                    assert second.id == "second-chip"
+
     def test_returns_none_when_not_found(self, tmp_path):
         """Returns None when personality id doesn't match any file."""
         with patch.dict(os.environ, {"SPARK_PERSONALITY": "nonexistent"}):
