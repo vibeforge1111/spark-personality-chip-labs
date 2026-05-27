@@ -2,6 +2,7 @@
 
 import json
 import pytest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from personality_engine.schema import build_personality, SCHEMA_VERSION
@@ -231,6 +232,39 @@ class TestBridgeIO:
     def test_read_nonexistent(self, tmp_path):
         payload = read_bridge(tmp_path / "nope.json")
         assert payload is None
+
+    def test_naive_generated_at_is_checked_for_staleness(self, tmp_path):
+        """Older bridge files without timezone info should still honor TTL."""
+        bridge_path = tmp_path / "test_bridge.json"
+        bridge_path.write_text(
+            json.dumps({
+                "schema_version": "bridge.v1",
+                "generated_at": "2000-01-01T00:00:00",
+                "meta": {"ttl_seconds": 1},
+            }),
+            encoding="utf-8",
+        )
+
+        payload = read_bridge(bridge_path)
+
+        assert payload is not None
+        assert payload["_stale"] is True
+
+    def test_fresh_naive_generated_at_is_not_marked_stale(self, tmp_path):
+        bridge_path = tmp_path / "test_bridge.json"
+        bridge_path.write_text(
+            json.dumps({
+                "schema_version": "bridge.v1",
+                "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                "meta": {"ttl_seconds": 120},
+            }),
+            encoding="utf-8",
+        )
+
+        payload = read_bridge(bridge_path)
+
+        assert payload is not None
+        assert "_stale" not in payload
 
 
 class TestVerbosityMapping:
