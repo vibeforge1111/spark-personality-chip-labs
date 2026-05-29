@@ -111,7 +111,7 @@ def sync_to_intelligence_builder(
         try:
             existing = json.loads(state_path.read_text(encoding="utf-8"))
             existing_count = int(existing.get("interaction_count", 0))
-        except (json.JSONDecodeError, OSError):
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError):
             pass
 
     state = {

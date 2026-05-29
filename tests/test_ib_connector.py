@@ -97,6 +97,26 @@ class TestSyncToIntelligenceBuilder:
             state = sync_to_intelligence_builder(chip, state_path=path)
             assert state["interaction_count"] == 42
 
+    def test_malformed_interaction_count_does_not_block_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "personality_evolution_v1.json"
+            path.write_text(json.dumps({"interaction_count": "not-an-int"}))
+
+            chip = _make_chip()
+            state = sync_to_intelligence_builder(chip, state_path=path)
+            assert state["interaction_count"] == 0
+            assert state["last_signals"]["personality_id"] == "test-chip"
+
+    def test_non_object_existing_state_does_not_block_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "personality_evolution_v1.json"
+            path.write_text(json.dumps(["unexpected", "state"]))
+
+            chip = _make_chip()
+            state = sync_to_intelligence_builder(chip, state_path=path)
+            assert state["interaction_count"] == 0
+            assert state["last_signals"]["personality_id"] == "test-chip"
+
     def test_fresh_file_zero_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "personality_evolution_v1.json"
