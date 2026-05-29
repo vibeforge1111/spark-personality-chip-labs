@@ -105,6 +105,19 @@ class TestGetActivePersonality:
             assert chip.id == "test-active"
             assert chip.name == "TestActive"
 
+    def test_cache_parent_file_does_not_block_active_personality(self, personality_dir, tmp_path):
+        """Cache write failures should not prevent loading a valid active chip."""
+        cache_parent = tmp_path / "active_cache_parent"
+        cache_parent.write_text("not a directory", encoding="utf-8")
+
+        with patch.dict(os.environ, {"SPARK_PERSONALITY": "test-active"}):
+            with patch("personality_engine.active.ACTIVE_FILE", tmp_path / "nope.json"):
+                with patch("personality_engine.active.CACHE_FILE", cache_parent / "active_cache.json"):
+                    chip = get_active_personality(search_paths=[personality_dir])
+
+        assert chip is not None
+        assert chip.id == "test-active"
+
     def test_returns_none_when_not_found(self, tmp_path):
         """Returns None when personality id doesn't match any file."""
         with patch.dict(os.environ, {"SPARK_PERSONALITY": "nonexistent"}):

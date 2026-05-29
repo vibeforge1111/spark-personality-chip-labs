@@ -251,7 +251,10 @@ def _check_file_cache() -> Optional[PersonalityChip]:
 
 def _write_cache(chip: PersonalityChip) -> None:
     """Write chip info to file cache."""
-    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
 
     # Find the source path from _raw if available
     raw = chip._raw
