@@ -73,7 +73,8 @@ class TestSparkHookMain:
         assert exit_code == 1
         payload = json.loads(output_path.read_text(encoding="utf-8"))
         assert payload["returncode"] == 1
-        assert "No such file or directory" in payload["error"]
+        assert payload["error"] == "Spark hook input file not found."
+        assert str(input_path) not in json.dumps(payload)
         assert payload["result"] == {}
 
     def test_main_writes_error_when_input_payload_is_not_object(self, tmp_path, monkeypatch):
@@ -97,6 +98,28 @@ class TestSparkHookMain:
         assert exit_code == 1
         payload = json.loads(output_path.read_text(encoding="utf-8"))
         assert payload["error"] == "Spark hook input payload must be a JSON object."
+
+    def test_main_rejects_oversized_input_before_hook_execution(self, tmp_path, monkeypatch):
+        input_path = tmp_path / "input.json"
+        output_path = tmp_path / "output.json"
+        input_path.write_text('{"note":"' + ("x" * 1_000_001) + '"}', encoding="utf-8")
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "personality_engine.spark_hook",
+                "personality",
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ],
+        )
+
+        exit_code = main()
+
+        assert exit_code == 1
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        assert payload["error"] == "Spark hook input payload is too large."
 
     def test_main_writes_error_when_no_active_personality(self, tmp_path, monkeypatch):
         input_path = tmp_path / "input.json"

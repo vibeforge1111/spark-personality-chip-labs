@@ -9,6 +9,8 @@ from typing import Any
 from .active import get_active_personality
 from .ib_connector import build_builder_personality_import
 
+MAX_HOOK_INPUT_BYTES = 1_000_000
+
 
 def handle_personality_hook(payload: dict[str, Any]) -> dict[str, Any]:
     human_id = str(payload.get("human_id") or "").strip()
@@ -50,6 +52,17 @@ def _write_output(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _read_hook_payload(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ValueError("Spark hook input file not found.")
+    if path.stat().st_size > MAX_HOOK_INPUT_BYTES:
+        raise ValueError("Spark hook input payload is too large.")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Spark hook input payload must be a JSON object.")
+    return payload
+
+
 def _error_output(message: str) -> dict[str, Any]:
     return {
         "returncode": 1,
@@ -72,9 +85,7 @@ def main() -> int:
     output_path = Path(args.output)
 
     try:
-        payload = json.loads(input_path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("Spark hook input payload must be a JSON object.")
+        payload = _read_hook_payload(input_path)
         if args.hook != "personality":
             raise ValueError(f"Unsupported hook: {args.hook}")
         result = handle_personality_hook(payload)
