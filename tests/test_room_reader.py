@@ -2,9 +2,11 @@
 
 import json
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
+from personality_engine import room_reader
 from personality_engine.room_reader import (
     RoomReading,
     read_room,
@@ -149,3 +151,36 @@ class TestTrajectory:
     def test_too_few_entries(self):
         assert _compute_trajectory([], 0.5) == "stable"
         assert _compute_trajectory([{"ts": 1, "score": 0.5}], 0.5) == "stable"
+
+    def test_top_level_non_object_trajectory_cache_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "room_trajectory.json"
+            path.write_text("[]", encoding="utf-8")
+
+            with patch.object(room_reader, "_TRAJECTORY_FILE", path):
+                result = read_room("this is broken and still failing")
+
+            assert result.primary_state == "frustrated"
+            assert result.trajectory == "stable"
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            assert len(saved["entries"]) == 1
+
+    def test_malformed_trajectory_entries_are_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "room_trajectory.json"
+            path.write_text(
+                json.dumps({
+                    "entries": [
+                        "bad row",
+                        {"ts": time.time(), "state": 3, "score": "bad score"},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+
+            with patch.object(room_reader, "_TRAJECTORY_FILE", path):
+                summary = get_trajectory_summary()
+
+            assert summary["recent_states"] == ["neutral"]
+            assert summary["interaction_count"] == 1
+            assert summary["avg_intensity"] == 0.0

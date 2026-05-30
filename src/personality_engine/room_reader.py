@@ -154,16 +154,41 @@ _WINDOW_SIZE = 8  # Track last N interactions
 _TRAJECTORY_TTL = 1800  # 30 minutes — reset if gap exceeds this
 
 
+def _number_or_default(value, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
 def _load_trajectory() -> list[dict]:
     """Load the sliding window of recent readings."""
     if not _TRAJECTORY_FILE.exists():
         return []
     try:
         data = json.loads(_TRAJECTORY_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return []
         entries = data.get("entries", [])
+        if not isinstance(entries, list):
+            return []
         # Expire stale entries
         now = time.time()
-        return [e for e in entries if now - e.get("ts", 0) < _TRAJECTORY_TTL]
+        clean_entries = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            ts = _number_or_default(entry.get("ts"))
+            if now - ts >= _TRAJECTORY_TTL:
+                continue
+            state = entry.get("state", "neutral")
+            clean_entries.append({
+                "ts": ts,
+                "state": state if isinstance(state, str) else "neutral",
+                "score": _number_or_default(entry.get("score")),
+            })
+        return clean_entries
     except (json.JSONDecodeError, OSError):
         return []
 
@@ -189,7 +214,8 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     if len(entries) < 2:
         return "stable"
 
-    scores = [e.get("score", 0.0) for e in entries[-4:]] + [current_score]
+    scores = [_number_or_default(e.get("score") if isinstance(e, dict) else None) for e in entries[-4:]]
+    scores.append(_number_or_default(current_score))
     if len(scores) < 3:
         return "stable"
 
@@ -318,8 +344,11 @@ def get_trajectory_summary() -> dict:
         return {"trajectory": "stable", "recent_states": [], "interaction_count": 0}
 
     recent = entries[-_WINDOW_SIZE:]
-    states = [e.get("state", "neutral") for e in recent]
-    scores = [e.get("score", 0.0) for e in recent]
+    states = [
+        e.get("state", "neutral") if isinstance(e.get("state"), str) else "neutral"
+        for e in recent
+    ]
+    scores = [_number_or_default(e.get("score")) for e in recent]
 
     return {
         "trajectory": _compute_trajectory(recent, scores[-1] if scores else 0.0),
