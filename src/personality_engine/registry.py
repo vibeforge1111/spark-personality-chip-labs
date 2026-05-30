@@ -107,8 +107,16 @@ class PersonalityRegistry:
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 state = json.load(f)
-            self._active = state.get("active", {})
-            self._default = state.get("default")
+            if not isinstance(state, dict):
+                return
+            active = state.get("active", {})
+            self._active = {
+                str(agent): pid
+                for agent, pid in active.items()
+                if isinstance(pid, str)
+            } if isinstance(active, dict) else {}
+            default = state.get("default")
+            self._default = default if isinstance(default, str) else None
         except (json.JSONDecodeError, IOError):
             pass
 
