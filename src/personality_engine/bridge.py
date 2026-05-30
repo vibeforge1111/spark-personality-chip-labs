@@ -186,6 +186,8 @@ def read_bridge(bridge_path: Path = BRIDGE_FILE) -> Optional[dict]:
             payload = json.load(f)
     except (json.JSONDecodeError, IOError):
         return None
+    if not isinstance(payload, dict):
+        return None
 
     # Check staleness -- bridge.v1 uses generated_at + meta.ttl_seconds
     ts = payload.get("generated_at") or payload.get("timestamp")
