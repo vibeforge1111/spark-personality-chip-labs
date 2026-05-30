@@ -54,7 +54,11 @@ class PersonalityRegistry:
     def assign(self, agent_id: str, personality_id: str) -> None:
         """Assign a personality to an agent."""
         if personality_id not in self._installed:
-            raise ValueError(f"Personality '{personality_id}' not installed")
+            installed = ", ".join(sorted(self._installed)) or "(none)"
+            raise ValueError(
+                f"Personality '{personality_id}' not installed. "
+                f"Installed personalities: {installed}."
+            )
         self._active[agent_id] = personality_id
         self._save_state()
 
@@ -73,7 +77,11 @@ class PersonalityRegistry:
     def set_default(self, personality_id: str) -> None:
         """Set the global default personality for agents without assignment."""
         if personality_id not in self._installed:
-            raise ValueError(f"Personality '{personality_id}' not installed")
+            installed = ", ".join(sorted(self._installed)) or "(none)"
+            raise ValueError(
+                f"Personality '{personality_id}' not installed. "
+                f"Installed personalities: {installed}."
+            )
         self._default = personality_id
         self._save_state()
 
