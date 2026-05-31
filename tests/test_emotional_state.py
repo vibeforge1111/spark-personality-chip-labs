@@ -16,6 +16,8 @@ from personality_engine.emotional_state import (
     pad_to_intensity,
     build_emotional_state_for_bridge,
     reset_emotional_state,
+    _save_state,
+    _load_state,
 )
 
 
@@ -166,3 +168,47 @@ class TestBridgeIntegration:
         chip = _make_chip()
         state = build_emotional_state_for_bridge(chip, persist=False)
         assert isinstance(state["primary_emotion"], str)
+
+
+class TestSaveStateCleanup:
+    """Test that _save_state properly cleans up on failure."""
+
+    def test_save_state_handles_replace_failure(self, tmp_path):
+        """If os.replace fails after fd is closed, temp file should be cleaned up."""
+        from unittest.mock import patch as mock_patch
+        import os
+
+        state_file = tmp_path / "emotional_state.json"
+        with mock_patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            original_replace = os.replace
+            call_count = 0
+
+            def failing_replace(src, dst):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise OSError("simulated replace failure")
+                return original_replace(src, dst)
+
+            pad = PADVector(0.5, 0.3, 0.1)
+            with mock_patch("os.replace", side_effect=failing_replace):
+                _save_state(pad)
+
+            # Verify temp files were cleaned up (no .tmp files remaining)
+            tmp_files = list(tmp_path.glob("*.tmp"))
+            assert len(tmp_files) == 0, f"Leftover temp files: {tmp_files}"
+
+    def test_save_state_normal_flow(self, tmp_path):
+        """Normal save and load cycle should work correctly."""
+        from unittest.mock import patch as mock_patch
+
+        state_file = tmp_path / "emotional_state.json"
+        with mock_patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            pad = PADVector(0.5, 0.3, 0.1)
+            _save_state(pad)
+
+            loaded_pad, ts = _load_state()
+            assert abs(loaded_pad.pleasure - 0.5) < 0.01
+            assert abs(loaded_pad.arousal - 0.3) < 0.01
+            assert abs(loaded_pad.dominance - 0.1) < 0.01
+            assert ts > 0
