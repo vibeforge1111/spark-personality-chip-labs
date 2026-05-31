@@ -144,7 +144,10 @@ def _save_state(pad: PADVector) -> None:
             os.close(fd)
             os.replace(tmp_path, str(_STATE_FILE))
         except BaseException:
-            os.close(fd) if not os.get_inheritable(fd) else None
+            try:
+                os.close(fd)
+            except OSError:
+                pass
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
