@@ -171,6 +171,29 @@ class TestBridgeIntegration:
 
 
 class TestSaveStateCleanup:
+    def test_load_state_ignores_non_object_state(self, tmp_path):
+        state_file = tmp_path / "emotional_state.json"
+        state_file.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            pad, updated_at = _load_state()
+
+        assert pad == PADVector()
+        assert updated_at == 0.0
+
+    def test_load_state_ignores_malformed_pad_or_timestamp(self, tmp_path):
+        state_file = tmp_path / "emotional_state.json"
+        state_file.write_text(
+            json.dumps({"pad": ["not", "a", "mapping"], "updated_at": "bad"}),
+            encoding="utf-8",
+        )
+
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            pad, updated_at = _load_state()
+
+        assert pad == PADVector()
+        assert updated_at == 0.0
+
     def test_save_state_cleans_temp_file_after_replace_failure(self, tmp_path):
         state_file = tmp_path / "emotional_state.json"
 

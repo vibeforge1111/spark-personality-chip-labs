@@ -4,6 +4,7 @@ import json
 import pytest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from personality_engine.schema import build_personality, SCHEMA_VERSION
 from personality_engine.bridge import (
@@ -265,6 +266,25 @@ class TestBridgeIO:
 
         assert payload is not None
         assert "_stale" not in payload
+
+    def test_read_non_object_bridge_returns_none(self, tmp_path):
+        bridge_path = tmp_path / "test_bridge.json"
+        bridge_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+        assert read_bridge(bridge_path) is None
+
+    def test_write_bridge_preserves_old_file_after_replace_failure(self, tmp_path):
+        chip = _make_chip()
+        bridge_path = tmp_path / "test_bridge.json"
+        old_payload = {"schema_version": "bridge.v1", "generated_at": "old"}
+        bridge_path.write_text(json.dumps(old_payload), encoding="utf-8")
+
+        with patch("personality_engine.storage.os.replace", side_effect=OSError("boom")):
+            with pytest.raises(OSError):
+                write_bridge(chip, bridge_path=bridge_path)
+
+        assert json.loads(bridge_path.read_text(encoding="utf-8")) == old_payload
+        assert list(tmp_path.glob("*.tmp")) == []
 
 
 class TestVerbosityMapping:

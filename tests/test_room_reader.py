@@ -11,6 +11,8 @@ from personality_engine.room_reader import (
     read_room_from_hook_input,
     get_trajectory_summary,
     _compute_trajectory,
+    _load_trajectory,
+    _save_trajectory,
 )
 
 
@@ -149,3 +151,37 @@ class TestTrajectory:
     def test_too_few_entries(self):
         assert _compute_trajectory([], 0.5) == "stable"
         assert _compute_trajectory([{"ts": 1, "score": 0.5}], 0.5) == "stable"
+
+    def test_load_trajectory_ignores_non_object_state(self, tmp_path):
+        trajectory_file = tmp_path / "room_trajectory.json"
+        trajectory_file.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
+            assert _load_trajectory() == []
+
+    def test_load_trajectory_filters_malformed_entries(self, tmp_path):
+        trajectory_file = tmp_path / "room_trajectory.json"
+        trajectory_file.write_text(
+            json.dumps({
+                "entries": [
+                    "bad",
+                    {"ts": "not-a-number", "score": 0.4},
+                    {"ts": 9999999999, "state": "curious", "score": 0.4},
+                ],
+            }),
+            encoding="utf-8",
+        )
+
+        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
+            entries = _load_trajectory()
+
+        assert entries == [{"ts": 9999999999, "state": "curious", "score": 0.4}]
+
+    def test_save_trajectory_cleans_temp_file_after_replace_failure(self, tmp_path):
+        trajectory_file = tmp_path / "room_trajectory.json"
+
+        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
+            with patch("personality_engine.storage.os.replace", side_effect=OSError("boom")):
+                _save_trajectory([{"ts": 1, "state": "curious", "score": 0.5}])
+
+        assert list(tmp_path.glob("*.tmp")) == []

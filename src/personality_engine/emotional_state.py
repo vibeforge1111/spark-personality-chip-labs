@@ -22,13 +22,12 @@ Lightweight: ~150 lines, pure math, no external APIs.
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from .storage import atomic_write_json, read_json_object
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +50,8 @@ class PADVector:
 
     @classmethod
     def from_dict(cls, d: dict) -> "PADVector":
+        if not isinstance(d, dict):
+            return cls()
         return cls(
             pleasure=d.get("pleasure", 0.0),
             arousal=d.get("arousal", 0.0),
@@ -120,47 +121,27 @@ def _load_state() -> tuple[PADVector, float]:
     if not _STATE_FILE.exists():
         return PADVector(), 0.0
     try:
-        data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+        data = read_json_object(_STATE_FILE)
+        if data is None:
+            return PADVector(), 0.0
         pad = PADVector.from_dict(data.get("pad", {}))
         ts = data.get("updated_at", 0.0)
+        if not isinstance(ts, (int, float)):
+            return PADVector(), 0.0
         if time.time() - ts > _STATE_TTL:
             return PADVector(), 0.0  # Too stale, reset
         return pad, ts
-    except (json.JSONDecodeError, OSError):
+    except (OSError, TypeError):
         return PADVector(), 0.0
 
 
 def _save_state(pad: PADVector) -> None:
     """Persist emotional state to disk using atomic write."""
-    _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    fd: int | None = None
-    tmp_path: Path | None = None
-    try:
-        data = json.dumps({"pad": pad.to_dict(), "updated_at": time.time()})
-        fd, raw_tmp_path = tempfile.mkstemp(
-            dir=str(_STATE_FILE.parent), suffix=".tmp"
-        )
-        tmp_path = Path(raw_tmp_path)
-        try:
-            os.write(fd, data.encode("utf-8"))
-            os.fsync(fd)
-            os.close(fd)
-            fd = None
-            os.replace(str(tmp_path), str(_STATE_FILE))
-            tmp_path = None
-        finally:
-            if fd is not None:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-            if tmp_path is not None and tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
-    except OSError:
-        pass
+    atomic_write_json(
+        _STATE_FILE,
+        {"pad": pad.to_dict(), "updated_at": time.time()},
+        raise_on_error=False,
+    )
 
 
 # ---------------------------------------------------------------------------
