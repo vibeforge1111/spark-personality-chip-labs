@@ -135,7 +135,11 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    command = sys.argv[1]
+    # Normalize the subcommand: strip surrounding whitespace and lowercase.
+    # `personality_cli.py List` and `personality_cli.py  activate ` should reach
+    # the same handler as the documented spellings rather than falling into the
+    # "Unknown command" branch.
+    command = sys.argv[1].strip().lower()
 
     if command == "list":
         cmd_list()
