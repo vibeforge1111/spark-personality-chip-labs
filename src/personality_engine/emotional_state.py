@@ -115,18 +115,35 @@ _DECAY_RATE = 0.15       # Fraction to decay per update toward baseline
 _STATE_TTL = 3600        # 1 hour — reset if session gap exceeds this
 
 
+def _number(value: object, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if -1.0e6 < parsed < 1.0e6 else default
+
+
 def _load_state() -> tuple[PADVector, float]:
     """Load persisted emotional state. Returns (pad, last_update_timestamp)."""
     if not _STATE_FILE.exists():
         return PADVector(), 0.0
     try:
         data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-        pad = PADVector.from_dict(data.get("pad", {}))
-        ts = data.get("updated_at", 0.0)
+        if not isinstance(data, dict):
+            return PADVector(), 0.0
+        raw_pad = data.get("pad", {})
+        if not isinstance(raw_pad, dict):
+            return PADVector(), 0.0
+        pad = PADVector(
+            pleasure=_number(raw_pad.get("pleasure")),
+            arousal=_number(raw_pad.get("arousal")),
+            dominance=_number(raw_pad.get("dominance")),
+        )
+        ts = _number(data.get("updated_at", 0.0))
         if time.time() - ts > _STATE_TTL:
             return PADVector(), 0.0  # Too stale, reset
         return pad, ts
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, TypeError, ValueError):
         return PADVector(), 0.0
 
 

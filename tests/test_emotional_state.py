@@ -124,6 +124,38 @@ class TestUpdateEmotionalState:
         pad = update_emotional_state(chip, user_state=None, persist=False)
         assert isinstance(pad, PADVector)
 
+    def test_corrupt_persisted_state_recovers_to_baseline(self, tmp_path):
+        chip = _make_chip()
+        state_file = tmp_path / "emotional_state.json"
+        state_file.write_text(
+            json.dumps({
+                "pad": {"pleasure": "bad", "arousal": [], "dominance": {}},
+                "updated_at": "not-a-timestamp",
+            }),
+            encoding="utf-8",
+        )
+
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            pad = update_emotional_state(chip, user_state="curious", persist=False)
+
+        assert isinstance(pad, PADVector)
+        assert -1.0 <= pad.pleasure <= 1.0
+        assert -1.0 <= pad.arousal <= 1.0
+        assert -1.0 <= pad.dominance <= 1.0
+
+    def test_non_object_persisted_state_recovers_to_baseline(self, tmp_path):
+        chip = _make_chip()
+        state_file = tmp_path / "emotional_state.json"
+        state_file.write_text(json.dumps(["not", "state"]), encoding="utf-8")
+
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            pad = update_emotional_state(chip, user_state="curious", persist=False)
+
+        assert isinstance(pad, PADVector)
+        assert -1.0 <= pad.pleasure <= 1.0
+        assert -1.0 <= pad.arousal <= 1.0
+        assert -1.0 <= pad.dominance <= 1.0
+
 
 class TestPADMappings:
     def test_pad_to_emotion_steady(self):
