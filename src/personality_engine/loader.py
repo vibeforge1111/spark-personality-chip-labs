@@ -28,6 +28,8 @@ try:
 except ImportError:
     yaml = None  # Handled in _load_yaml
 
+_RECOVERABLE_OVERLAY_ERRORS = (OSError, ValueError) + ((yaml.YAMLError,) if yaml is not None else ())
+
 
 def load_personality(path: str | Path) -> Optional[PersonalityChip]:
     """
@@ -128,7 +130,10 @@ def _load_directory(directory: Path) -> dict:
     for filename, section_key in overlay_map.items():
         overlay_path = directory / filename
         if overlay_path.exists():
-            overlay_data = _load_yaml(overlay_path)
+            try:
+                overlay_data = _load_yaml(overlay_path)
+            except _RECOVERABLE_OVERLAY_ERRORS:
+                continue
             if isinstance(overlay_data, dict):
                 # For list sections (vulnerabilities, strengths), replace entirely
                 if section_key in ("vulnerabilities", "strengths"):

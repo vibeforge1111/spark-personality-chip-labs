@@ -251,7 +251,7 @@ def pad_to_primary_emotion(pad: PADVector) -> str:
                 (pad.arousal - min_a) * 0.3 +
                 (pad.dominance - min_d) * 0.3
             )
-            if score > best_score:
+            if score >= threshold and score > best_score:
                 best_score = score
                 best = emotion
 

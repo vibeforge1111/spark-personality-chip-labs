@@ -91,6 +91,15 @@ class TestLoadMultifile:
         assert chip.openness == 0.90
         assert chip.conscientiousness == 0.80
 
+    def test_malformed_optional_overlay_is_skipped(self, tmp_multifile_dir):
+        chip_dir = tmp_multifile_dir / "multi-agent"
+        (chip_dir / "traits.yaml").write_text("traits:\n  openness: [\n", encoding="utf-8")
+
+        chip = load_personality(chip_dir)
+
+        assert chip.id == "multi-agent"
+        assert chip.openness == 0.50
+
     def test_directory_missing_personality_yaml(self, tmp_path):
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()

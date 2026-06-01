@@ -137,6 +137,10 @@ class TestPADMappings:
         emotion = pad_to_primary_emotion(PADVector(0.5, 0.3, 0.1))
         assert emotion in ("delighted", "energized", "focused", "contemplative", "steady", "concerned", "gentle")
 
+    def test_pad_to_emotion_requires_threshold_distance(self):
+        emotion = pad_to_primary_emotion(PADVector(0.1, -0.2, -0.2))
+        assert emotion == "steady"
+
     def test_pad_to_mood(self):
         assert pad_to_mood(PADVector(0.0, 0.3, 0.3)) == "builder"
         assert pad_to_mood(PADVector(0.3, -0.3, 0.0)) == "zen"
