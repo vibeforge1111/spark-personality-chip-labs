@@ -29,6 +29,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .storage import atomic_write_json
+
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
 IB_STATE_VERSION = 1
 
@@ -128,7 +130,7 @@ def sync_to_intelligence_builder(
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        atomic_write_json(state_path, state)
     except OSError:
         pass
 
