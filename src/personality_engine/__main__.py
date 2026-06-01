@@ -31,7 +31,10 @@ def main():
         from .hooks import main as hooks_main
         hooks_main()
     else:
-        print(f"Unknown subcommand: {subcommand}", file=sys.stderr)
+        print(
+            f"Unknown subcommand: {subcommand!r}. Known subcommands: hooks",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
