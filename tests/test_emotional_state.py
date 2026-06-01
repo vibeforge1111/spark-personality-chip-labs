@@ -16,6 +16,8 @@ from personality_engine.emotional_state import (
     pad_to_intensity,
     build_emotional_state_for_bridge,
     reset_emotional_state,
+    _load_state,
+    _save_state,
 )
 
 
@@ -166,3 +168,26 @@ class TestBridgeIntegration:
         chip = _make_chip()
         state = build_emotional_state_for_bridge(chip, persist=False)
         assert isinstance(state["primary_emotion"], str)
+
+
+class TestSaveStateCleanup:
+    def test_save_state_cleans_temp_file_after_replace_failure(self, tmp_path):
+        state_file = tmp_path / "emotional_state.json"
+
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            with patch("os.replace", side_effect=OSError("simulated replace failure")):
+                _save_state(PADVector(0.5, 0.3, 0.1))
+
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_save_state_normal_flow(self, tmp_path):
+        state_file = tmp_path / "emotional_state.json"
+
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            _save_state(PADVector(0.5, 0.3, 0.1))
+            loaded_pad, updated_at = _load_state()
+
+        assert abs(loaded_pad.pleasure - 0.5) < 0.01
+        assert abs(loaded_pad.arousal - 0.3) < 0.01
+        assert abs(loaded_pad.dominance - 0.1) < 0.01
+        assert updated_at > 0

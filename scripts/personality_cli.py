@@ -135,7 +135,7 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    command = sys.argv[1]
+    command = sys.argv[1].strip().lower()
 
     if command == "list":
         cmd_list()

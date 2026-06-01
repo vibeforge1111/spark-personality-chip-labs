@@ -133,21 +133,32 @@ def _load_state() -> tuple[PADVector, float]:
 def _save_state(pad: PADVector) -> None:
     """Persist emotional state to disk using atomic write."""
     _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd: int | None = None
+    tmp_path: Path | None = None
     try:
         data = json.dumps({"pad": pad.to_dict(), "updated_at": time.time()})
-        fd, tmp_path = tempfile.mkstemp(
+        fd, raw_tmp_path = tempfile.mkstemp(
             dir=str(_STATE_FILE.parent), suffix=".tmp"
         )
+        tmp_path = Path(raw_tmp_path)
         try:
             os.write(fd, data.encode("utf-8"))
             os.fsync(fd)
             os.close(fd)
-            os.replace(tmp_path, str(_STATE_FILE))
-        except BaseException:
-            os.close(fd) if not os.get_inheritable(fd) else None
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            raise
+            fd = None
+            os.replace(str(tmp_path), str(_STATE_FILE))
+            tmp_path = None
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
     except OSError:
         pass
 
