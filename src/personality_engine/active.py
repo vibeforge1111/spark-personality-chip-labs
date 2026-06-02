@@ -15,6 +15,7 @@ Includes file-based caching with 5-minute TTL for fast hook lookups.
 import json
 import os
 import time
+from .storage import atomic_write_json
 from pathlib import Path
 from typing import Optional
 
@@ -280,7 +281,6 @@ def _write_cache(chip: PersonalityChip) -> None:
             break
 
     try:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except IOError:
+        atomic_write_json(CACHE_FILE, data, raise_on_error=False)
+    except (IOError, OSError):
         pass
