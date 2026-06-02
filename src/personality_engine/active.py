@@ -43,22 +43,23 @@ def get_active_personality(
     Returns:
         PersonalityChip if one is active, None otherwise.
     """
+    # Resolve personality id before consulting caches so env/project changes
+    # take effect immediately instead of reusing a stale previous chip.
+    personality_id, personality_path = _resolve_personality_id(project_dir)
+    if not personality_id:
+        return None
+
     # Check in-memory cache first
-    cached = _check_memory_cache()
+    cached = _check_memory_cache(expected_id=personality_id)
     if cached is not None:
         return cached
 
     # Check file cache
-    cached = _check_file_cache()
+    cached = _check_file_cache(expected_id=personality_id)
     if cached is not None:
         _memory_cache["chip"] = cached
         _memory_cache["ts"] = time.time()
         return cached
-
-    # Resolve personality id
-    personality_id, personality_path = _resolve_personality_id(project_dir)
-    if not personality_id:
-        return None
 
     # Load the personality chip
     chip = _find_and_load(personality_id, personality_path, search_paths)
@@ -212,7 +213,7 @@ def _find_and_load(
 
 # ── Caching ──
 
-def _check_memory_cache() -> Optional[PersonalityChip]:
+def _check_memory_cache(expected_id: str = None) -> Optional[PersonalityChip]:
     """Check in-memory cache (same process only)."""
     if "chip" not in _memory_cache:
         return None
@@ -220,10 +221,13 @@ def _check_memory_cache() -> Optional[PersonalityChip]:
     if time.time() - ts > CACHE_TTL_SECONDS:
         _memory_cache.clear()
         return None
-    return _memory_cache["chip"]
+    chip = _memory_cache["chip"]
+    if expected_id and chip.id != expected_id:
+        return None
+    return chip
 
 
-def _check_file_cache() -> Optional[PersonalityChip]:
+def _check_file_cache(expected_id: str = None) -> Optional[PersonalityChip]:
     """Check file-based cache for cross-process reuse."""
     if not CACHE_FILE.exists():
         return None
@@ -237,6 +241,8 @@ def _check_file_cache() -> Optional[PersonalityChip]:
     # Check TTL
     cached_at = data.get("cached_at", 0)
     if time.time() - cached_at > CACHE_TTL_SECONDS:
+        return None
+    if expected_id and data.get("personality_id") != expected_id:
         return None
 
     # Rebuild chip from cached path
