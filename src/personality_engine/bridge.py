@@ -200,8 +200,7 @@ def read_bridge(bridge_path: Path = BRIDGE_FILE) -> Optional[dict]:
 
 def clear_bridge(bridge_path: Path = BRIDGE_FILE) -> None:
     """Remove the bridge file (reset to no personality)."""
-    if bridge_path.exists():
-        bridge_path.unlink()
+    bridge_path.unlink(missing_ok=True)
 
 
 # ── Value Mapping Helpers ──
