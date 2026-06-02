@@ -186,7 +186,7 @@ def read_bridge(bridge_path: Path = BRIDGE_FILE) -> Optional[dict]:
     ttl = meta.get("ttl_seconds", 120) if isinstance(meta, dict) else 120
     if ts:
         try:
-            written = datetime.fromisoformat(ts)
+            written = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             if written.tzinfo is None:
                 written = written.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - written).total_seconds()
