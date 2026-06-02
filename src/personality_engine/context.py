@@ -208,7 +208,8 @@ def _build_adaptive(chip: PersonalityChip, user_state: str = None) -> str:
         lines.append(instruction)
     else:
         lines.append(f"No specific adaptation for state '{user_state}' - using defaults.")
-        lines.append(f"Voice: {chip.voice_signature}" if chip.voice_signature else "")
+        if chip.voice_signature:
+            lines.append(f"Voice: {chip.voice_signature}")
 
     return "\n".join(lines)
 
