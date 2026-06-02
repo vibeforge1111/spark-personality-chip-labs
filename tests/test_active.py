@@ -132,6 +132,48 @@ class TestGetActivePersonality:
             chip = get_active_personality(search_paths=[tmp_path])
             assert chip is None
 
+    def test_active_file_path_must_match_declared_personality_id(self, tmp_path):
+        """Explicit active-file paths cannot override the declared personality id."""
+        import yaml
+
+        expected_data = {
+            "schema": SCHEMA_VERSION,
+            "identity": {
+                "id": "expected-chip",
+                "name": "ExpectedChip",
+                "archetype": "builder",
+            },
+        }
+        other_data = {
+            "schema": SCHEMA_VERSION,
+            "identity": {
+                "id": "other-chip",
+                "name": "OtherChip",
+                "archetype": "oracle",
+            },
+        }
+        expected_file = tmp_path / "expected-chip.personality.yaml"
+        other_file = tmp_path / "other-chip.personality.yaml"
+        expected_file.write_text(yaml.dump(expected_data), encoding="utf-8")
+        other_file.write_text(yaml.dump(other_data), encoding="utf-8")
+
+        active_file = tmp_path / "active.json"
+        active_file.write_text(
+            json.dumps({
+                "personality_id": "expected-chip",
+                "personality_path": str(other_file),
+            }),
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {"SPARK_PERSONALITY": ""}):
+            with patch("personality_engine.active.ACTIVE_FILE", active_file):
+                with patch("personality_engine.active.CACHE_FILE", tmp_path / "cache.json"):
+                    chip = get_active_personality(search_paths=[tmp_path])
+
+        assert chip is not None
+        assert chip.id == "expected-chip"
+
 
 class TestSetAndClear:
 
