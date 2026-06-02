@@ -55,3 +55,40 @@ def test_registry_atomic_write_cleans_temp_file_after_replace_failure(tmp_path):
 
     assert json.loads(registry_path.read_text(encoding="utf-8")) == old_payload
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_assign_unknown_personality_lists_installed_in_error(tmp_path):
+    registry = PersonalityRegistry(tmp_path / "personality_registry.json")
+    registry.install(_make_chip())
+
+    with pytest.raises(ValueError) as exc_info:
+        registry.assign("agent-1", "ghost-personality")
+
+    message = str(exc_info.value)
+    assert "ghost-personality" in message
+    assert "Installed personalities" in message
+    assert "registry-test" in message
+
+
+def test_set_default_unknown_personality_lists_installed_in_error(tmp_path):
+    registry = PersonalityRegistry(tmp_path / "personality_registry.json")
+    registry.install(_make_chip())
+
+    with pytest.raises(ValueError) as exc_info:
+        registry.set_default("ghost-personality")
+
+    message = str(exc_info.value)
+    assert "ghost-personality" in message
+    assert "Installed personalities" in message
+    assert "registry-test" in message
+
+
+def test_assign_unknown_personality_names_empty_registry_explicitly(tmp_path):
+    registry = PersonalityRegistry(tmp_path / "personality_registry.json")
+
+    with pytest.raises(ValueError) as exc_info:
+        registry.assign("agent-1", "any-id")
+
+    message = str(exc_info.value)
+    assert "any-id" in message
+    assert "Installed personalities: (none)" in message
