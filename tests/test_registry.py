@@ -90,3 +90,22 @@ def test_assign_unknown_personality_names_empty_registry_explicitly(tmp_path):
     message = str(exc_info.value)
     assert "any-id" in message
     assert "Installed personalities: (none)." in message
+
+
+def test_registry_restores_installed_chips_on_reload(tmp_path):
+    """A registry written and reloaded must remember installed chips.
+
+    Without scan_and_install() in _load_state, a new PersonalityRegistry()
+    instance loses _installed content that was previously saved, causing
+    assign()/get_personality() to fail silently after any process restart.
+    """
+    registry_path = tmp_path / "personality_registry.json"
+    registry_a = PersonalityRegistry(registry_path)
+    chip = _make_chip()
+    registry_a.install(chip)
+    registry_a.assign("agent-99", chip.id)
+
+    registry_b = PersonalityRegistry(registry_path)
+    reloaded = registry_b.get_personality("agent-99")
+    assert reloaded is not None, "Registry must survive process restart"
+    assert reloaded.id == chip.id

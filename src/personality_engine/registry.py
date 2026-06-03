@@ -108,7 +108,9 @@ class PersonalityRegistry:
         )
 
     def _load_state(self) -> None:
-        """Load registry state from disk."""
+        """Load registry state from disk, restoring installed chips from the
+        scan directory so the registry survives process restarts."""
+        self.scan_and_install()
         state = read_json_object(self._path)
         if state is None:
             return
