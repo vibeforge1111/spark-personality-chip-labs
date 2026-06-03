@@ -183,3 +183,76 @@ class TestGetActivePersonalityId:
         os.environ.pop("SPARK_PERSONALITY", None)
         with patch("personality_engine.active.ACTIVE_FILE", tmp_path / "nope.json"):
             assert get_active_personality_id() is None
+
+
+class TestResolveActiveResilience:
+    """SessionStart hook resilience: a corrupt active-personality pointer
+    file or project .personality file must never crash _resolve_personality_id.
+
+    Sibling-precedent: PR #64 added type-safety to PADVector.from_dict so a
+    corrupt emotional_state.json cannot crash the hook. The active-pointer
+    files are also user-writable runtime state with the same risk profile.
+    """
+
+    def test_binary_active_file_does_not_crash(self, tmp_path):
+        """A binary-garbage active_personality.json must degrade to no active."""
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "active.json"
+        # Bytes that are not valid utf-8 (lone continuation byte)
+        active_file.write_bytes(b"\xff\xfe\x00\x80garbage\x80")
+
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            pid, ppath = _resolve_personality_id()
+
+        assert pid is None
+        assert ppath is None
+
+    def test_active_file_root_is_list_does_not_crash(self, tmp_path):
+        """A JSON-list root in active_personality.json must degrade, not crash."""
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "active.json"
+        active_file.write_text('["personality_id", "forge"]', encoding="utf-8")
+
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            pid, ppath = _resolve_personality_id()
+
+        assert pid is None
+        assert ppath is None
+
+    def test_active_file_null_personality_id_does_not_crash(self, tmp_path):
+        """{"personality_id": null} must not raise AttributeError on .strip()."""
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "active.json"
+        active_file.write_text('{"personality_id": null}', encoding="utf-8")
+
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            pid, ppath = _resolve_personality_id()
+
+        assert pid is None
+        assert ppath is None
+
+    def test_dot_personality_binary_does_not_crash(self, tmp_path):
+        """A binary project .personality file must degrade silently."""
+        os.environ.pop("SPARK_PERSONALITY", None)
+        dot = tmp_path / ".personality"
+        dot.write_bytes(b"\xff\xfeforge\x80")
+
+        with patch("personality_engine.active.ACTIVE_FILE", tmp_path / "no_active.json"):
+            pid, ppath = _resolve_personality_id(project_dir=str(tmp_path))
+
+        assert pid is None
+        assert ppath is None
+
+    def test_active_file_well_formed_still_resolves(self, tmp_path):
+        """Sanity: well-formed active.json still returns the personality id."""
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "active.json"
+        active_file.write_text(
+            '{"personality_id": "forge", "personality_path": "/p/forge"}', encoding="utf-8"
+        )
+
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            pid, ppath = _resolve_personality_id()
+
+        assert pid == "forge"
+        assert ppath == "/p/forge"

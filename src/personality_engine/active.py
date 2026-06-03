@@ -140,11 +140,11 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
         try:
             with open(ACTIVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            pid = data.get("personality_id", "").strip()
-            ppath = data.get("personality_path")
+            pid = (data.get("personality_id") or "").strip() if isinstance(data, dict) else ""
+            ppath = data.get("personality_path") if isinstance(data, dict) else None
             if pid:
                 return pid, ppath
-        except (json.JSONDecodeError, IOError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError, AttributeError):
             pass
 
     # 3. Project-level .personality file
@@ -155,7 +155,7 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
                 pid = dot_file.read_text(encoding="utf-8").strip().split("\n")[0].strip()
                 if pid:
                     return pid, None
-            except IOError:
+            except (OSError, UnicodeDecodeError):
                 pass
 
     # 4. Nothing active
