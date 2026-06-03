@@ -144,3 +144,30 @@ class TestRepoPersonalities:
         assert chip.id == "founder-operator"
         assert chip.name == "Founder Operator"
         assert chip.voice_signature == "direct, calm, low-fluff, strategic"
+
+
+def test_corrupt_overlay_produces_warning_not_silent_skip(tmp_path):
+    """Corrupted overlay YAML must produce _overlay_load_warnings, not silent skip."""
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+
+    # Valid base personality
+    base = tmp_path / "personality.yaml"
+    base.write_text(
+        "schema: spark-personality-chip.v1\n"
+        "identity:\n"
+        "  id: corrupt-overlay-test\n"
+        "  name: Corrupt Overlay Test\n"
+        "  archetype: builder\n"
+        "traits:\n"
+        "  openness: 0.7\n"
+    )
+
+    # Corrupt safety.yaml — missing colon
+    (tmp_path / "safety.yaml").write_text("harm_avoidance\n  - test: broken\n")
+
+    chip = load_personality(tmp_path)
+    
+    warnings = chip._raw.get("_overlay_load_warnings", [])
+    assert len(warnings) >= 1, f"Expected warning for corrupt overlay, got {warnings}"
+    assert any("safety.yaml" in w for w in warnings), f"Warning must name safety.yaml: {warnings}"
