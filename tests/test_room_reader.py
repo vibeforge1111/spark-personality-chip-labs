@@ -13,6 +13,7 @@ from personality_engine.room_reader import (
     _compute_trajectory,
     _load_trajectory,
     _save_trajectory,
+    _score_as_float,
 )
 
 
@@ -185,3 +186,54 @@ class TestTrajectory:
                 _save_trajectory([{"ts": 1, "state": "curious", "score": 0.5}])
 
         assert list(tmp_path.glob("*.tmp")) == []
+
+
+class TestTrajectoryScoreTypeSafety:
+    """Guard against corrupted trajectory entries crashing the PreToolUse hook.
+
+    Sibling-precedent: PR #64 added type-safety to PADVector.from_dict so a
+    corrupted emotional_state.json cannot crash the hook. The trajectory file
+    at ~/.cache/personality-chips/room_trajectory.json is the same shape of
+    user-writable persisted state and was missing the same guard.
+    """
+
+    def test_string_score_does_not_crash_arithmetic(self):
+        """A persisted score of 'high' (string) must not raise TypeError."""
+        entries = [
+            {"ts": 1.0, "state": "frustrated", "score": "high"},
+            {"ts": 2.0, "state": "frustrated", "score": 0.5},
+            {"ts": 3.0, "state": "frustrated", "score": 0.6},
+        ]
+        result = _compute_trajectory(entries, current_score=0.7)
+        assert result in ("rising", "falling", "stable", "volatile")
+
+    def test_none_score_does_not_crash(self):
+        entries = [
+            {"ts": 1.0, "state": "confused", "score": None},
+            {"ts": 2.0, "state": "confused", "score": 0.3},
+            {"ts": 3.0, "state": "confused", "score": 0.4},
+        ]
+        result = _compute_trajectory(entries, current_score=0.4)
+        assert result in ("rising", "falling", "stable", "volatile")
+
+    def test_missing_score_falls_back_to_zero(self):
+        entries = [
+            {"ts": 1.0, "state": "curious"},
+            {"ts": 2.0, "state": "curious"},
+            {"ts": 3.0, "state": "curious"},
+        ]
+        result = _compute_trajectory(entries, current_score=0.5)
+        assert result in ("rising", "falling", "stable", "volatile")
+
+    def test_score_as_float_helper(self):
+        assert _score_as_float(0.5) == 0.5
+        assert _score_as_float(1) == 1.0
+        assert _score_as_float("0.5") == 0.0
+        assert _score_as_float(None) == 0.0
+        assert _score_as_float(True) == 0.0  # booleans excluded
+        assert _score_as_float({}) == 0.0
+
+    def test_well_formed_trajectory_still_computes(self):
+        entries = [{"ts": float(i), "state": "frustrated", "score": 0.1 * i} for i in range(1, 5)]
+        result = _compute_trajectory(entries, current_score=0.6)
+        assert result == "rising"

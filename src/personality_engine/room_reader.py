@@ -186,7 +186,11 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     if len(entries) < 2:
         return "stable"
 
-    scores = [e.get("score", 0.0) for e in entries[-4:]] + [current_score]
+    # Guard against corrupted trajectory entries: persisted score may be a
+    # string ("high"), None, or other non-numeric type if the file is hand-edited
+    # or partially written. Treat any non-numeric score as 0.0 so the delta
+    # arithmetic below cannot raise TypeError and crash the hook handler.
+    scores = [_score_as_float(e.get("score")) for e in entries[-4:]] + [current_score]
     if len(scores) < 3:
         return "stable"
 
@@ -202,6 +206,15 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     elif avg_delta < -0.1:
         return "falling"
     return "stable"
+
+
+def _score_as_float(value) -> float:
+    """Coerce a persisted score to float, defaulting to 0.0 on non-numeric.
+
+    Booleans are excluded (True/False are int subclasses but not meaningful
+    trajectory scores).
+    """
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
 # ---------------------------------------------------------------------------
