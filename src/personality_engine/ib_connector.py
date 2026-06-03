@@ -25,6 +25,7 @@ truth, PersonalityEvolver adapts from there.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -33,6 +34,8 @@ from .storage import atomic_write_json
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
 IB_STATE_VERSION = 1
+
+logger = logging.getLogger(__name__)
 
 
 def map_chip_to_evolver_traits(chip) -> dict[str, float]:
@@ -113,8 +116,18 @@ def sync_to_intelligence_builder(
         try:
             existing = json.loads(state_path.read_text(encoding="utf-8"))
             existing_count = int(existing.get("interaction_count", 0))
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError):
-            pass
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError) as exc:
+            # A corrupted or unreadable persisted state file silently resets
+            # interaction_count to 0 — every SessionStart looks like a fresh
+            # install and any long-running drift signal tied to the counter
+            # is lost. Surface the path + error so the operator can decide
+            # whether to repair the file or accept the reset.
+            logger.warning(
+                "ib_connector: failed to load existing personality_evolution state at %s; "
+                "interaction_count will reset to 0: %s",
+                state_path,
+                exc,
+            )
 
     state = {
         "version": IB_STATE_VERSION,
