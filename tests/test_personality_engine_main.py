@@ -45,3 +45,32 @@ def test_unknown_subcommand_does_not_consume_third_arg_as_hook_name() -> None:
     # must not appear.
     assert "Unknown hook" not in result.stderr
     assert "Unknown hook" not in result.stdout
+
+
+def test_unknown_subcommand_typo_suggests_closest_match() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "personality_engine", "hoks", "session_start"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={"PYTHONPATH": "src", "PATH": "/usr/bin:/usr/local/bin:/bin"},
+    )
+
+    assert result.returncode == 1
+    assert "Did you mean 'hooks'?" in result.stderr
+
+
+def test_unknown_subcommand_unrelated_token_no_suggestion() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "personality_engine", "xyz", "session_start"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={"PYTHONPATH": "src", "PATH": "/usr/bin:/usr/local/bin:/bin"},
+    )
+
+    assert result.returncode == 1
+    # Unrelated tokens are too far from any known name for cutoff=0.6.
+    assert "Did you mean" not in result.stderr
