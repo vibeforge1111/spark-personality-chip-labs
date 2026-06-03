@@ -11,6 +11,7 @@ Usage:
     python scripts/personality_cli.py bridge                # Show bridge payload
 """
 
+import difflib
 import sys
 import json
 from pathlib import Path
@@ -64,6 +65,11 @@ def cmd_activate(personality_id: str):
         print("Available personalities:")
         for chip in chips:
             print(f"  - {chip.id}")
+        suggestion = difflib.get_close_matches(
+            personality_id, [c.id for c in chips], n=1, cutoff=0.6
+        )
+        if suggestion:
+            print(f"Did you mean {suggestion[0]!r}?")
         sys.exit(1)
 
     set_active_personality(personality_id)
