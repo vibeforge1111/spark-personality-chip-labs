@@ -11,9 +11,12 @@ Usage:
     python scripts/personality_cli.py bridge                # Show bridge payload
 """
 
+import difflib
 import sys
 import json
 from pathlib import Path
+
+_KNOWN_COMMANDS = ("list", "activate", "deactivate", "status", "bridge")
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -152,7 +155,12 @@ def main():
         cmd_bridge()
     else:
         print(f"Unknown command: {command}")
-        print("Available: list, activate, deactivate, status, bridge")
+        print("Available: " + ", ".join(_KNOWN_COMMANDS))
+        suggestion = difflib.get_close_matches(
+            command, _KNOWN_COMMANDS, n=1, cutoff=0.6
+        )
+        if suggestion:
+            print(f"Did you mean {suggestion[0]!r}?")
         sys.exit(1)
 
 
