@@ -144,3 +144,38 @@ class TestRepoPersonalities:
         assert chip.id == "founder-operator"
         assert chip.name == "Founder Operator"
         assert chip.voice_signature == "direct, calm, low-fluff, strategic"
+
+
+def test_corrupt_custom_overlay_preserves_core_identity(tmp_path):
+    """A corrupt custom.yaml overlay must NOT crash the core personality load.
+
+    Sibling-precedent: PR #63 made the named overlay_map files (traits.yaml,
+    safety.yaml, ...) degrade gracefully via _overlay_load_warnings. The
+    custom.yaml branch was not in that change and still raises uncaught
+    yaml.YAMLError / ValueError, losing the entire chip identity over a
+    non-core overlay.
+    """
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+
+    # Valid base personality
+    base = tmp_path / "personality.yaml"
+    base.write_text(
+        "schema: spark-personality-chip.v1\n"
+        "identity:\n"
+        "  id: corrupt-custom-overlay\n"
+        "  name: Corrupt Custom Overlay\n"
+        "  archetype: builder\n"
+        "traits:\n"
+        "  openness: 0.7\n"
+    )
+
+    # Corrupt custom.yaml — invalid YAML syntax
+    (tmp_path / "custom.yaml").write_text("custom_section:\n  - field: [unclosed\n")
+
+    chip = load_personality(tmp_path)
+
+    assert chip is not None
+    assert chip.id == "corrupt-custom-overlay"
+    warnings = chip._raw.get("_overlay_load_warnings", [])
+    assert any("custom.yaml" in w for w in warnings), f"Expected warning naming custom.yaml: {warnings}"
