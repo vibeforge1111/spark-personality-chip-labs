@@ -14,7 +14,10 @@ def read_json_object(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
     except (json.JSONDecodeError, OSError):
         return None
     return data if isinstance(data, dict) else None
