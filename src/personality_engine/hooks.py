@@ -62,7 +62,10 @@ def _read_stdin() -> dict[str, Any]:
     try:
         raw = sys.stdin.read()
         if raw.strip():
+            try:
             return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
     except (json.JSONDecodeError, OSError):
         pass
     return {}
