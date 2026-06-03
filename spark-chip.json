@@ -4,9 +4,16 @@
   "chip_name": "spark-personality-chip-labs",
   "domain": "personality",
   "version": "0.1.0",
-  "capabilities": ["personality"],
+  "capabilities": [
+    "personality"
+  ],
   "commands": {
-    "personality": ["python", "-m", "personality_engine.spark_hook", "personality"]
+    "personality": [
+      "python",
+      "-m",
+      "personality_engine.spark_hook",
+      "personality"
+    ]
   },
   "frontier": {
     "enabled": true,
@@ -15,7 +22,11 @@
       "eq_dimensions": "Research emotional intelligence dimension effectiveness",
       "adaptive_triggers": "Discover new adaptive behavior triggers"
     },
-    "required_fields": ["identity.id", "identity.name", "traits"],
+    "required_fields": [
+      "identity.id",
+      "identity.name",
+      "traits"
+    ],
     "field_patterns": {
       "identity.id": "^[a-z][a-z0-9-]{2,48}$"
     }

@@ -86,7 +86,7 @@ personalities, archetypes, room-reading behavior, and modular personality
 profiles.
 
 Use Spark Character for the default Spark voice. Use this repo when you want a
-portable personality chip that can be selected, validated, and tested.
+portable personality chip that can be selected, validated, and tested. The public manifest intentionally exposes only the implemented `personality` capability.
 
 ## Security
 
