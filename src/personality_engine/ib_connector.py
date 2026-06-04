@@ -25,6 +25,7 @@ truth, PersonalityEvolver adapts from there.
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -131,8 +132,18 @@ def sync_to_intelligence_builder(
     state_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         atomic_write_json(state_path, state)
-    except OSError:
-        pass
+    except OSError as exc:
+        # Log the write failure before swallowing so the operator can see
+        # WHY Spark Intelligence Builder's PersonalityEvolver is reading
+        # stale traits (warmth/directness/playfulness/pacing/assertiveness).
+        # A silent pass here means the chip switch appears successful from
+        # the personality side but downstream IB never picks up the new
+        # OCEAN+EQ mapping — the agent keeps adapting from the previous
+        # personality's evolver state forever, with no surface in the
+        # SessionStart hook output or the operator log.
+        sys.stderr.write(
+            f"[personality-engine] IB sync write to {state_path} failed: {exc}\n"
+        )
 
     return state
 
