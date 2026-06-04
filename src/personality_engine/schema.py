@@ -225,21 +225,41 @@ def validate_personality(spec: dict) -> list[str]:
         if not isinstance(prefs, dict):
             errors.append("preferences must be a dict")
         else:
-            _validate_enum_field(prefs.get("communication", {}), "verbosity",
+            # Resolve communication / decision_making sub-blocks to dicts up
+            # front. `prefs.get('communication', {})` returns whatever is
+            # there — if the YAML has `preferences: {communication: yes}`,
+            # the value is a string, and the downstream
+            # _validate_enum_field(container, ...) call crashes inside
+            # container.get(field_name). validate_personality is supposed
+            # to RETURN errors, not raise — that contract is broken when a
+            # sub-block is shape-malformed. Coerce non-dict sub-blocks to
+            # an empty dict here and emit a typed error message instead so
+            # the loader's `validate_personality(spec)` -> raise ValueError
+            # path keeps surfacing a useful chip-load failure rather than
+            # an AttributeError that load_all_personalities does not catch.
+            comm = prefs.get("communication", {})
+            if not isinstance(comm, dict):
+                errors.append("preferences.communication must be a dict")
+                comm = {}
+            dm = prefs.get("decision_making", {})
+            if not isinstance(dm, dict):
+                errors.append("preferences.decision_making must be a dict")
+                dm = {}
+            _validate_enum_field(comm, "verbosity",
                                 VALID_VERBOSITY, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "formality",
+            _validate_enum_field(comm, "formality",
                                 VALID_FORMALITY, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "explanation_style",
+            _validate_enum_field(comm, "explanation_style",
                                 VALID_EXPLANATION_STYLES, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "code_comments",
+            _validate_enum_field(comm, "code_comments",
                                 VALID_CODE_COMMENTS, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "humor_frequency",
+            _validate_enum_field(comm, "humor_frequency",
                                 VALID_HUMOR_FREQUENCY, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("decision_making", {}), "risk_appetite",
+            _validate_enum_field(dm, "risk_appetite",
                                 VALID_RISK_APPETITE, errors, "preferences.decision_making")
-            _validate_enum_field(prefs.get("decision_making", {}), "consensus_need",
+            _validate_enum_field(dm, "consensus_need",
                                 VALID_CONSENSUS_NEED, errors, "preferences.decision_making")
-            _validate_enum_field(prefs.get("decision_making", {}), "reversibility_weight",
+            _validate_enum_field(dm, "reversibility_weight",
                                 VALID_REVERSIBILITY_WEIGHT, errors, "preferences.decision_making")
 
     # ── Anti-patterns ──
