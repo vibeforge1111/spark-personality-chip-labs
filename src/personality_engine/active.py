@@ -67,7 +67,6 @@ def _is_within_roots(path: Path, roots: list[Path]) -> bool:
             continue
     return False
 
-
 # In-memory cache for same-process reuse
 _memory_cache: dict = {}
 
