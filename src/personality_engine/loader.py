@@ -132,7 +132,10 @@ def _load_directory(directory: Path) -> dict:
         if overlay_path.exists():
             try:
                 overlay_data = _load_yaml(overlay_path)
-            except _RECOVERABLE_OVERLAY_ERRORS:
+            except _RECOVERABLE_OVERLAY_ERRORS as exc:
+                spec.setdefault("_overlay_load_warnings", []).append(
+                    f"{filename}: {type(exc).__name__}: {exc}"
+                )
                 continue
             if isinstance(overlay_data, dict):
                 # For list sections (vulnerabilities, strengths), replace entirely
