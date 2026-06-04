@@ -212,7 +212,13 @@ def build_builder_personality_import(
     evolver_state_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build the Spark Intelligence Builder personality-hook result payload."""
-    state_path = Path(evolver_state_path) if evolver_state_path else IB_STATE_PATH
+    if evolver_state_path:
+        raw = str(evolver_state_path)
+        if '..' in raw:
+            raise ValueError('evolver_state_path must not contain path traversal')
+        state_path = Path(evolver_state_path)
+    else:
+        state_path = IB_STATE_PATH
     evolver_state = sync_to_intelligence_builder(chip, state_path=state_path)
     base_traits = dict(evolver_state.get("traits") or map_chip_to_evolver_traits(chip))
     return {
