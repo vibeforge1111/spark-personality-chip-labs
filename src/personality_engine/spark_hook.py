@@ -58,7 +58,9 @@ def handle_personality_hook(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _write_output(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path = path.with_name(f".{path.name}.{Path.cwd().name}.tmp")
+    temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path.replace(path)
 
 
 def _read_hook_payload(path: Path) -> dict[str, Any]:
