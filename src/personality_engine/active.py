@@ -149,13 +149,26 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
 
     # 3. Project-level .personality file
     if project_dir:
-        dot_file = Path(project_dir) / ".personality"
+        # Guard the Path construction itself — a non-string project_dir
+        # (e.g. a list passed through from a malformed SessionStart payload
+        # at hooks.py:122 input_data.get("cwd", "")) would raise TypeError
+        # inside Path() before any try/except below sees it, crashing the
+        # entire SessionStart hook.
+        try:
+            dot_file = Path(project_dir) / ".personality"
+        except TypeError:
+            return None, None
         if dot_file.exists():
             try:
                 pid = dot_file.read_text(encoding="utf-8").strip().split("\n")[0].strip()
                 if pid:
                     return pid, None
-            except IOError:
+            # Catch UnicodeDecodeError (binary garbage at .personality), which
+            # propagates from read_text(encoding="utf-8") and is NOT a subclass
+            # of IOError. Without it, a single corrupt or non-text .personality
+            # file kills the SessionStart hook before personality context is
+            # injected — the agent runs without identity or guardrails.
+            except (IOError, UnicodeDecodeError):
                 pass
 
     # 4. Nothing active
