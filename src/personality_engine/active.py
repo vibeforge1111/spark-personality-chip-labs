@@ -88,8 +88,7 @@ def set_active_personality(
     if personality_path:
         data["personality_path"] = str(personality_path)
 
-    with open(ACTIVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    atomic_write_json(ACTIVE_FILE, data, raise_on_error=True)
 
     # Clear caches so next get_active picks up the change
     clear_cache()
