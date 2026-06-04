@@ -108,14 +108,18 @@ class PersonalityRegistry:
         )
 
     def _load_state(self) -> None:
-        """Load registry state from disk."""
+        """Load registry state from disk, then restore installed chips from
+        the scan directory so the registry survives process restarts.
+
+        Reading JSON first ensures active/default assignments are preserved
+        before scan_and_install() rebuilds _installed from YAML files."""
         state = read_json_object(self._path)
-        if state is None:
-            return
-        active = state.get("active", {})
-        self._active = active if isinstance(active, dict) else {}
-        default = state.get("default")
-        self._default = default if isinstance(default, str) else None
+        if state is not None:
+            active = state.get("active", {})
+            self._active = active if isinstance(active, dict) else {}
+            default = state.get("default")
+            self._default = default if isinstance(default, str) else None
+        self.scan_and_install()
 
     def _save_state(self) -> None:
         """Persist registry state to disk."""
