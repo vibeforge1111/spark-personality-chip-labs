@@ -363,7 +363,12 @@ def main() -> None:
     """CLI entry point: dispatch to the appropriate hook handler."""
     if len(sys.argv) < 2:
         print(
-            json.dumps({"error": "Usage: python -m personality_engine.hooks <hook_name>"}),
+            json.dumps({
+                "error": (
+                    "Usage: python -m personality_engine.hooks <hook_name>. "
+                    f"Available: {list(HANDLERS.keys())}"
+                )
+            }),
             file=sys.stderr,
         )
         sys.exit(1)
