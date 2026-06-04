@@ -136,16 +136,15 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
         return env_id, None
 
     # 2. Global active file
-    if ACTIVE_FILE.exists():
-        try:
-            with open(ACTIVE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            pid = data.get("personality_id", "").strip()
-            ppath = data.get("personality_path")
-            if pid:
-                return pid, ppath
-        except (json.JSONDecodeError, IOError):
-            pass
+    try:
+        with open(ACTIVE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        pid = data.get("personality_id", "").strip()
+        ppath = data.get("personality_path")
+        if pid:
+            return pid, ppath
+    except (FileNotFoundError, json.JSONDecodeError, IOError):
+        pass
 
     # 3. Project-level .personality file
     if project_dir:
@@ -226,13 +225,10 @@ def _check_memory_cache() -> Optional[PersonalityChip]:
 
 def _check_file_cache() -> Optional[PersonalityChip]:
     """Check file-based cache for cross-process reuse."""
-    if not CACHE_FILE.exists():
-        return None
-
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (FileNotFoundError, json.JSONDecodeError, IOError):
         return None
 
     # Check TTL

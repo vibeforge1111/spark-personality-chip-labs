@@ -11,11 +11,9 @@ from typing import Any
 
 def read_json_object(path: Path) -> dict[str, Any] | None:
     """Read a JSON object from disk, returning None for missing or invalid state."""
-    if not path.exists():
-        return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
     return data if isinstance(data, dict) else None
 
