@@ -184,6 +184,18 @@ def read_bridge(bridge_path: Path = BRIDGE_FILE) -> Optional[dict]:
     ts = payload.get("generated_at") or payload.get("timestamp")
     meta = payload.get("meta", {})
     ttl = meta.get("ttl_seconds", 120) if isinstance(meta, dict) else 120
+    # Guard against a non-numeric ttl_seconds value that survives the
+    # `isinstance(meta, dict)` check (the dict guard ensures meta IS a dict,
+    # but the value at meta.ttl_seconds is still arbitrary — a hand-edit or
+    # version-drifted writer can put '120s', None, or a list there). Without
+    # this isinstance check, `age > ttl` raises TypeError inside the try
+    # block; the existing `except (ValueError, TypeError)` does catch it,
+    # but the staleness check is then silently abandoned for a bridge file
+    # whose timestamp IS valid — every downstream consumer (Spark Soul
+    # Kernel, Archetype Router, Emotions Runtime) sees the file as fresh
+    # forever. Fall back to the default 120s ttl when the value is bad.
+    if not isinstance(ttl, (int, float)):
+        ttl = 120
     if ts:
         try:
             if not isinstance(ts, str):
