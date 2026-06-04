@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .schema import PersonalityChip
+from .schema import PersonalityChip, _valid_id
 from .storage import atomic_write_json
 
 ACTIVE_FILE = Path.home() / ".spark" / "active_personality.json"
@@ -133,6 +133,8 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
     # 1. Environment variable
     env_id = os.environ.get("SPARK_PERSONALITY", "").strip()
     if env_id:
+        if not _valid_id(env_id):
+            return None, None
         return env_id, None
 
     # 2. Global active file
@@ -143,6 +145,8 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
             pid = data.get("personality_id", "").strip()
             ppath = data.get("personality_path")
             if pid:
+                if not _valid_id(pid):
+                    return None, None
                 return pid, ppath
         except (json.JSONDecodeError, IOError):
             pass
@@ -154,6 +158,8 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
             try:
                 pid = dot_file.read_text(encoding="utf-8").strip().split("\n")[0].strip()
                 if pid:
+                    if not _valid_id(pid):
+                        return None, None
                     return pid, None
             except IOError:
                 pass
@@ -172,10 +178,14 @@ def _find_and_load(
     """Find and load a personality chip by id."""
     from .loader import load_personality
 
-    # If explicit path given, try it first
+    # If explicit path given, try it first (must be within allowed dirs)
     if personality_path:
-        p = Path(personality_path)
-        if p.exists():
+        p = Path(personality_path).resolve()
+        _allowed = [
+            (Path.home() / ".spark" / "chips" / "personality").resolve(),
+            (Path(__file__).parent.parent.parent / "personalities").resolve(),
+        ]
+        if any(str(p).startswith(str(r)) for r in _allowed) and p.exists():
             try:
                 return load_personality(p)
             except (ValueError, FileNotFoundError):
@@ -240,14 +250,20 @@ def _check_file_cache() -> Optional[PersonalityChip]:
     if time.time() - cached_at > CACHE_TTL_SECONDS:
         return None
 
-    # Rebuild chip from cached path
+    # Rebuild chip from cached path (validate within allowed dirs)
     path = data.get("personality_path")
-    if path and Path(path).exists():
-        from .loader import load_personality
-        try:
-            return load_personality(Path(path))
-        except (ValueError, FileNotFoundError):
-            return None
+    if path:
+        p = Path(path).resolve()
+        _allowed = [
+            (Path.home() / ".spark" / "chips" / "personality").resolve(),
+            (Path(__file__).parent.parent.parent / "personalities").resolve(),
+        ]
+        if any(str(p).startswith(str(r)) for r in _allowed) and p.exists():
+            from .loader import load_personality
+            try:
+                return load_personality(p)
+            except (ValueError, FileNotFoundError):
+                return None
 
     return None
 
