@@ -57,10 +57,12 @@ _SKIP_COMMANDS = frozenset({
 # Helpers
 # ---------------------------------------------------------------------------
 
+_MAX_STDIN_READ = 1_000_000
+
 def _read_stdin() -> dict[str, Any]:
     """Read JSON from stdin (Claude Code hook protocol)."""
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(_MAX_STDIN_READ)
         if raw.strip():
             return json.loads(raw)
     except (json.JSONDecodeError, OSError):
@@ -130,21 +132,21 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     try:
         write_bridge(chip, session_id=session_id)
     except (ImportError, OSError) as exc:
-        sys.stderr.write(f"bridge write failed: {exc}\n")  # non-blocking
+        sys.stderr.write("bridge write failed\n")  # non-blocking
 
     # Sync personality traits to Intelligence Builder's PersonalityEvolver
     try:
         from .ib_connector import sync_to_intelligence_builder
         sync_to_intelligence_builder(chip)
     except (ImportError, OSError) as exc:
-        sys.stderr.write(f"IB sync failed: {exc}\n")  # non-blocking
+        sys.stderr.write("IB sync failed\n")  # non-blocking
 
     # Reset emotional state for fresh session
     try:
         from .emotional_state import reset_emotional_state
         reset_emotional_state()
     except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"emotional reset failed: {exc}\n")
+        sys.stderr.write("emotional reset failed\n")
 
     # Build personality context for the agent
     concise = build_personality_context(chip, style="concise")
@@ -207,7 +209,7 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
         from .emotional_state import update_emotional_state
         update_emotional_state(chip, user_state=user_state, intensity=reading.confidence)
     except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"emotional update failed: {exc}\n")
+        sys.stderr.write("emotional update failed\n")
 
     adaptive = build_personality_context(chip, style="adaptive", user_state=user_state)
     if not adaptive:
@@ -275,7 +277,7 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
                 intensity=reading.confidence * 0.5,  # Dampen — output signals are indirect
             )
     except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"room read failed: {exc}\n")
+        sys.stderr.write("room read failed\n")
 
     session_id = f"claude-code-{os.getpid()}"
     report = observe_response(
