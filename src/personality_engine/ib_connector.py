@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .storage import atomic_write_json
+from .sanitization import _sanitize_for_prompt, _sanitize_list_for_prompt
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
 IB_STATE_VERSION = 1
@@ -124,7 +125,7 @@ def sync_to_intelligence_builder(
         "last_signals": {
             "source": "personality-chip",
             "personality_id": chip.id,
-            "personality_name": chip.name,
+            "personality_name": _sanitize_for_prompt(chip.name),
         },
     }
 
@@ -140,9 +141,9 @@ def sync_to_intelligence_builder(
 def build_builder_persona_summary(chip) -> str:
     """Build a short Builder-facing persona summary from the active chip."""
     parts: list[str] = []
-    voice_signature = str(getattr(chip, "voice_signature", "") or "").strip()
-    tagline = str(getattr(chip, "tagline", "") or "").strip()
-    archetype = str(getattr(chip, "archetype", "") or "").strip()
+    voice_signature = _sanitize_for_prompt(str(getattr(chip, "voice_signature", "") or "").strip())
+    tagline = _sanitize_for_prompt(str(getattr(chip, "tagline", "") or "").strip())
+    archetype = _sanitize_for_prompt(str(getattr(chip, "archetype", "") or "").strip())
     if voice_signature:
         parts.append(voice_signature)
     if tagline:
@@ -155,39 +156,39 @@ def build_builder_persona_summary(chip) -> str:
 def build_builder_behavioral_rules(chip) -> list[str]:
     """Derive Builder-visible style rules from the personality chip."""
     rules: list[str] = []
-    voice_signature = str(getattr(chip, "voice_signature", "") or "").strip()
+    voice_signature = _sanitize_for_prompt(str(getattr(chip, "voice_signature", "") or "").strip())
     if voice_signature:
         rules.append(f"Sound {voice_signature}.")
 
     communication = getattr(chip, "communication", {}) or {}
-    verbosity = str(communication.get("verbosity") or "").strip()
+    verbosity = _sanitize_for_prompt(str(communication.get("verbosity") or "").strip())
     if verbosity == "terse":
         rules.append("Keep replies tight and skip filler.")
     elif verbosity == "detailed":
         rules.append("Explain the why behind recommendations when more context is useful.")
 
-    formality = str(communication.get("formality") or "").strip()
+    formality = _sanitize_for_prompt(str(communication.get("formality") or "").strip())
     if formality:
         rules.append(f"Keep the register {formality}.")
 
-    explanation_style = str(communication.get("explanation_style") or "").strip()
+    explanation_style = _sanitize_for_prompt(str(communication.get("explanation_style") or "").strip())
     if explanation_style:
         rules.append(f"When explanation is needed, prefer a {explanation_style} explanation style.")
 
-    humor_frequency = str(communication.get("humor_frequency") or "").strip()
+    humor_frequency = _sanitize_for_prompt(str(communication.get("humor_frequency") or "").strip())
     if humor_frequency == "never":
         rules.append("Do not force humor or banter.")
     elif humor_frequency == "frequent":
         rules.append("Light humor is fine when it helps the point land.")
 
     decision_making = getattr(chip, "decision_making", {}) or {}
-    risk_appetite = str(decision_making.get("risk_appetite") or "").strip()
+    risk_appetite = _sanitize_for_prompt(str(decision_making.get("risk_appetite") or "").strip())
     if risk_appetite == "bold":
         rules.append("Make decisive recommendations when the path is clear.")
     elif risk_appetite == "conservative":
         rules.append("Bias toward safer reversible moves when tradeoffs are unclear.")
 
-    anti_patterns = [str(item).strip() for item in list(getattr(chip, "anti_patterns", []) or []) if str(item).strip()]
+    anti_patterns = [_sanitize_for_prompt(str(item).strip()) for item in list(getattr(chip, "anti_patterns", []) or []) if str(item).strip()]
     rules.extend(item if item.endswith(".") else f"{item}." for item in anti_patterns[:3])
 
     deduped: list[str] = []

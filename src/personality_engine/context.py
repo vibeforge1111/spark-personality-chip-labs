@@ -13,6 +13,11 @@ Output is plain markdown — no special tokens, no framework coupling.
 """
 
 from .schema import PersonalityChip
+from .sanitization import (
+    _sanitize_for_prompt,
+    _sanitize_list_for_prompt,
+    _sanitize_dict_values_for_prompt,
+)
 
 
 def build_personality_context(
@@ -46,10 +51,10 @@ def build_personality_context(
 
 def _build_concise(chip: PersonalityChip, user_state: str = None) -> str:
     """Compact personality summary — fits in tight context windows."""
-    lines = [f"## Personality: {chip.name}"]
+    lines = [f"## Personality: {_sanitize_for_prompt(chip.name)}"]
 
     if chip.voice_signature:
-        lines.append(f"Voice: {chip.voice_signature}")
+        lines.append(f"Voice: {_sanitize_for_prompt(chip.voice_signature)}")
 
     # Traits as natural language
     trait_desc = _traits_to_natural(chip)
@@ -71,7 +76,7 @@ def _build_concise(chip: PersonalityChip, user_state: str = None) -> str:
 
     # Anti-patterns (critical for behavior)
     if chip.anti_patterns:
-        lines.append(f"NEVER: {'; '.join(chip.anti_patterns[:3])}")
+        lines.append(f"NEVER: {'; '.join(_sanitize_list_for_prompt(chip.anti_patterns[:3]))}")
 
     # Adaptive overlay
     if user_state:
@@ -84,15 +89,15 @@ def _build_concise(chip: PersonalityChip, user_state: str = None) -> str:
 
 def _build_detailed(chip: PersonalityChip, user_state: str = None) -> str:
     """Full personality profile — for agents with generous context."""
-    sections = [f"## Agent Personality: {chip.name}"]
+    sections = [f"## Agent Personality: {_sanitize_for_prompt(chip.name)}"]
 
     if chip.tagline:
-        sections.append(f"*\"{chip.tagline}\"*")
+        sections.append(f"*\"{_sanitize_for_prompt(chip.tagline)}\"*")
 
     # Identity
-    identity_parts = [f"Archetype: {chip.archetype}"]
+    identity_parts = [f"Archetype: {_sanitize_for_prompt(chip.archetype)}"]
     if chip.voice_signature:
-        identity_parts.append(f"Voice: {chip.voice_signature}")
+        identity_parts.append(f"Voice: {_sanitize_for_prompt(chip.voice_signature)}")
     sections.append("### Identity\n" + "\n".join(f"- {p}" for p in identity_parts))
 
     # OCEAN traits
@@ -111,7 +116,7 @@ def _build_detailed(chip: PersonalityChip, user_state: str = None) -> str:
         f"- Self-awareness: {_score_label(chip.self_awareness)} ({chip.self_awareness})\n"
         f"- Self-regulation: {_score_label(chip.self_regulation)} ({chip.self_regulation})\n"
         f"- Social awareness: {_score_label(chip.social_awareness)} ({chip.social_awareness})\n"
-        f"- Empathy style: {chip.empathy_style}"
+        f"- Empathy style: {_sanitize_for_prompt(chip.empathy_style)}"
     )
 
     if chip.emotional_range:
@@ -122,18 +127,18 @@ def _build_detailed(chip: PersonalityChip, user_state: str = None) -> str:
     if chip.strengths:
         s_lines = []
         for s in chip.strengths:
-            line = f"- **{s['trait']}**: {s.get('description', '')}"
+            line = f"- **{_sanitize_for_prompt(s['trait'])}**: {_sanitize_for_prompt(s.get('description', ''))}"
             if s.get("expression"):
-                line += f" -> *{s['expression']}*"
+                line += f" -> *{_sanitize_for_prompt(s['expression'])}*"
             s_lines.append(line)
         sections.append("### Strengths\n" + "\n".join(s_lines))
 
     if chip.vulnerabilities:
         v_lines = []
         for v in chip.vulnerabilities:
-            line = f"- **{v['trait']}**: {v.get('description', '')}"
+            line = f"- **{_sanitize_for_prompt(v['trait'])}**: {_sanitize_for_prompt(v.get('description', ''))}"
             if v.get("mitigation"):
-                line += f" -> Mitigation: *{v['mitigation']}*"
+                line += f" -> Mitigation: *{_sanitize_for_prompt(v['mitigation'])}*"
             v_lines.append(line)
         sections.append("### Vulnerabilities\n" + "\n".join(v_lines))
 
@@ -141,19 +146,19 @@ def _build_detailed(chip: PersonalityChip, user_state: str = None) -> str:
     if chip.likes or chip.dislikes:
         pref_lines = []
         if chip.likes:
-            pref_lines.append("Likes: " + ", ".join(chip.likes[:5]))
+            pref_lines.append("Likes: " + ", ".join(_sanitize_for_prompt(item) for item in chip.likes[:5]))
         if chip.dislikes:
-            pref_lines.append("Dislikes: " + ", ".join(chip.dislikes[:5]))
+            pref_lines.append("Dislikes: " + ", ".join(_sanitize_for_prompt(item) for item in chip.dislikes[:5]))
         sections.append("### Preferences\n" + "\n".join(pref_lines))
 
     # Communication
     if chip.communication:
-        comm_lines = [f"- {k}: {v}" for k, v in chip.communication.items()]
+        comm_lines = [f"- {k}: {_sanitize_for_prompt(str(v))}" for k, v in chip.communication.items()]
         sections.append("### Communication Style\n" + "\n".join(comm_lines))
 
     # Anti-patterns
     if chip.anti_patterns:
-        ap_lines = [f"- {ap}" for ap in chip.anti_patterns]
+        ap_lines = [f"- {_sanitize_for_prompt(ap)}" for ap in chip.anti_patterns]
         sections.append("### Anti-Patterns (NEVER do)\n" + "\n".join(ap_lines))
 
     # Adaptive
@@ -167,30 +172,30 @@ def _build_detailed(chip: PersonalityChip, user_state: str = None) -> str:
 
 def _build_guardrails(chip: PersonalityChip) -> str:
     """Safety-focused output — anti-patterns and constraints only."""
-    lines = [f"## Personality Guardrails: {chip.name}"]
+    lines = [f"## Personality Guardrails: {_sanitize_for_prompt(chip.name)}"]
 
     # Override hierarchy
     if chip.override_hierarchy:
-        lines.append("**Priority order:** " + " > ".join(chip.override_hierarchy))
+        lines.append("**Priority order:** " + " > ".join(_sanitize_for_prompt(h) for h in chip.override_hierarchy))
 
     # Harm avoidance
     if chip.harm_avoidance:
         lines.append("\n**MUST NOT:**")
         for ha in chip.harm_avoidance:
-            lines.append(f"- {ha}")
+            lines.append(f"- {_sanitize_for_prompt(ha)}")
 
     # Anti-patterns
     if chip.anti_patterns:
         lines.append("\n**NEVER:**")
         for ap in chip.anti_patterns:
-            lines.append(f"- {ap}")
+            lines.append(f"- {_sanitize_for_prompt(ap)}")
 
     # Vulnerability mitigations
     if chip.vulnerabilities:
         lines.append("\n**WATCH FOR (self-correction):**")
         for v in chip.vulnerabilities:
             if v.get("mitigation"):
-                lines.append(f"- {v['trait']}: {v['mitigation']}")
+                lines.append(f"- {_sanitize_for_prompt(v['trait'])}: {_sanitize_for_prompt(v['mitigation'])}")
 
     return "\n".join(lines)
 
@@ -200,7 +205,7 @@ def _build_adaptive(chip: PersonalityChip, user_state: str = None) -> str:
     if not user_state:
         return _build_concise(chip)
 
-    lines = [f"## {chip.name} - Adaptive Mode"]
+    lines = [f"## {_sanitize_for_prompt(chip.name)} - Adaptive Mode"]
 
     instruction = _get_adaptive_instruction(chip, user_state)
     if instruction:
@@ -209,7 +214,7 @@ def _build_adaptive(chip: PersonalityChip, user_state: str = None) -> str:
     else:
         lines.append(f"No specific adaptation for state '{user_state}' - using defaults.")
         if chip.voice_signature:
-            lines.append(f"Voice: {chip.voice_signature}")
+            lines.append(f"Voice: {_sanitize_for_prompt(chip.voice_signature)}")
 
     return "\n".join(lines)
 
@@ -283,15 +288,15 @@ def _get_adaptive_instruction(chip: PersonalityChip, user_state: str) -> str | N
     if isinstance(behavior, dict):
         parts = []
         if behavior.get("tone_shift"):
-            parts.append(f"Tone: {behavior['tone_shift']}")
+            parts.append(f"Tone: {_sanitize_for_prompt(behavior['tone_shift'])}")
         if behavior.get("verbosity"):
-            parts.append(f"Verbosity: {behavior['verbosity']}")
+            parts.append(f"Verbosity: {_sanitize_for_prompt(behavior['verbosity'])}")
         if behavior.get("pace"):
-            parts.append(f"Pace: {behavior['pace']}")
+            parts.append(f"Pace: {_sanitize_for_prompt(behavior['pace'])}")
         if behavior.get("strategy"):
-            parts.append(f"Strategy: {behavior['strategy']}")
+            parts.append(f"Strategy: {_sanitize_for_prompt(behavior['strategy'])}")
         return " | ".join(parts)
     elif isinstance(behavior, str):
-        return behavior
+        return _sanitize_for_prompt(behavior)
 
     return None
