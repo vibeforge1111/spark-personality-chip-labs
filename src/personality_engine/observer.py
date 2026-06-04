@@ -232,7 +232,18 @@ def _check_emotional_range(chip: PersonalityChip, text: str) -> list[dict]:
 
 def _log_drift(personality_id: str, report: dict) -> None:
     """Append drift report to JSONL insights log."""
-    INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Guard the mkdir call. Without this, an OSError from INSIGHTS_DIR.mkdir
+    # (read-only filesystem, permission drift on ~/.spark, disk-quota
+    # exhaustion) propagates out of _log_drift -> observe_response ->
+    # handle_post_tool_use and crashes the PostToolUse hook. The existing
+    # write-side try/except below already swallows IOError on the JSONL
+    # append, so the mkdir-side OSError is the only remaining hook-crash
+    # path in this function. Treat the directory-creation failure the same
+    # way: skip the log silently rather than crash the hook chain.
+    try:
+        INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
     log_path = INSIGHTS_DIR / f"personality_{personality_id}.jsonl"
 
     entry = {
