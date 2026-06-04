@@ -22,12 +22,15 @@ Lightweight: ~150 lines, pure math, no external APIs.
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, read_json_object
+from .storage import read_json_object
 
 
 # ---------------------------------------------------------------------------
@@ -149,11 +152,34 @@ def _load_state() -> tuple[PADVector, float]:
 
 def _save_state(pad: PADVector) -> None:
     """Persist emotional state to disk using atomic write."""
-    atomic_write_json(
-        _STATE_FILE,
-        {"pad": pad.to_dict(), "updated_at": time.time()},
-        raise_on_error=False,
-    )
+    _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd = -1
+    tmp_path = None
+    try:
+        data = json.dumps({"pad": pad.to_dict(), "updated_at": time.time()})
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(_STATE_FILE.parent), suffix=".tmp"
+        )
+        try:
+            os.write(fd, data.encode("utf-8"))
+            os.fsync(fd)
+            os.close(fd)
+            fd = -1  # Mark fd as closed so the outer except won't double-close.
+            os.replace(tmp_path, str(_STATE_FILE))
+        except BaseException:
+            # fd may still be open -- close it only once (CWE-775).
+            if fd >= 0:
+                os.close(fd)
+                fd = -1
+            if tmp_path is not None and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+    except OSError:
+        # Ensure fd is not leaked even on unexpected errors.
+        if fd >= 0:
+            os.close(fd)
+        if tmp_path is not None and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 # ---------------------------------------------------------------------------
