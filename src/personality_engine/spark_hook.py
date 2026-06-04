@@ -102,7 +102,7 @@ def main() -> int:
             raise ValueError(f"Unsupported hook: {args.hook!r}. Supported hooks: 'personality'.")
         result = handle_personality_hook(payload)
     except Exception as exc:
-        _write_output(output_path, _error_output(str(exc)))
+        _write_output(output_path, _error_output("An unexpected error occurred in the personality hook."))
         return 1
 
     _write_output(output_path, result)
