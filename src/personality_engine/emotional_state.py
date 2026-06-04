@@ -52,11 +52,16 @@ class PADVector:
     def from_dict(cls, d: dict) -> "PADVector":
         if not isinstance(d, dict):
             return cls()
-        return cls(
-            pleasure=d.get("pleasure", 0.0),
-            arousal=d.get("arousal", 0.0),
-            dominance=d.get("dominance", 0.0),
-        )
+        pleasure = d.get("pleasure", 0.0)
+        arousal = d.get("arousal", 0.0)
+        dominance = d.get("dominance", 0.0)
+        if not isinstance(pleasure, (int, float)):
+            pleasure = 0.0
+        if not isinstance(arousal, (int, float)):
+            arousal = 0.0
+        if not isinstance(dominance, (int, float)):
+            dominance = 0.0
+        return cls(pleasure=pleasure, arousal=arousal, dominance=dominance)
 
     def clamp(self) -> "PADVector":
         """Clamp all dimensions to [-1, +1]."""
