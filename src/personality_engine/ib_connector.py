@@ -131,8 +131,9 @@ def sync_to_intelligence_builder(
     state_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         atomic_write_json(state_path, state)
-    except OSError:
-        pass
+    except OSError as exc:
+        import sys
+        print(f"Warning: failed to write IB state file: {exc}", file=sys.stderr)
 
     return state
 

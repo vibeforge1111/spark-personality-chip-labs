@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +60,26 @@ def handle_personality_hook(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _write_output(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    tmp_path = tmp
+    try:
+        os.write(fd, (json.dumps(payload, indent=2) + "\n").encode("utf-8"))
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        os.replace(tmp_path, str(path))
+        tmp_path = None
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if tmp_path is not None and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def _read_hook_payload(path: Path) -> dict[str, Any]:

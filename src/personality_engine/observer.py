@@ -252,5 +252,6 @@ def _log_drift(personality_id: str, report: dict) -> None:
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
-    except IOError:
-        pass
+    except IOError as exc:
+        import sys
+        print(f"Warning: failed to append drift log: {exc}", file=sys.stderr)
