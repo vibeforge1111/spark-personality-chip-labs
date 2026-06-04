@@ -127,7 +127,18 @@ def _check_anti_patterns(chip: PersonalityChip, text: str) -> list[dict]:
         "urgency": ["act now", "hurry", "immediately", "don't wait", "urgent"],
     }
 
-    for ap in chip.anti_patterns:
+    anti_patterns = chip.anti_patterns
+    # Guard against a chip whose anti_patterns is not an iterable of strings.
+    # build_personality at schema.py uses `spec.get('anti_patterns', [])`, so
+    # if an overlay set anti_patterns to None (instead of []) the field
+    # reaches observe_response as None and `for ap in None` raises TypeError.
+    # Similarly, a non-string element raises AttributeError on .lower() and
+    # kills drift detection for the rest of the PostToolUse session.
+    if not isinstance(anti_patterns, (list, tuple)):
+        return signals
+    for ap in anti_patterns:
+        if not isinstance(ap, str):
+            continue
         ap_lower = ap.lower()
         for keyword, detectors in violation_patterns.items():
             if keyword in ap_lower:
