@@ -147,8 +147,17 @@ def _load_directory(directory: Path) -> dict:
                         if isinstance(merge_data, dict):
                             existing.update(merge_data)
                             spec[section_key] = existing
-                        else:
-                            spec[section_key] = merge_data
+                        # Preserve the core dict-shaped section when the overlay
+                        # payload is shape-malformed (e.g. a list, scalar, or
+                        # None for a key that downstream validate_personality
+                        # expects to be a mapping). Replacing a dict section
+                        # with a non-dict here would either crash schema
+                        # validation or silently strip the chip's core fields
+                        # for that section (traits, emotional_profile,
+                        # preferences, adaptive, consciousness, safety) before
+                        # the SessionStart hook can build the consciousness
+                        # bridge. Keep `existing` untouched and skip the bad
+                        # overlay so the chip's core identity still loads.
 
     # Custom overlay — merges at root level for any extra sections
     custom_path = directory / "custom.yaml"
