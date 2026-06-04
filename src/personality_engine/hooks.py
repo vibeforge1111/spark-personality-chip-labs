@@ -82,7 +82,15 @@ def _is_disabled() -> bool:
 def _should_skip_command(tool_name: str, tool_input: dict[str, Any]) -> bool:
     """Fast pre-filter: return True if this tool action never needs personality."""
     if tool_name == "Bash":
-        command = tool_input.get("command", "").strip()
+        raw_command = tool_input.get("command", "")
+        # Guard against non-string 'command' values from a malformed hook
+        # payload (list, dict, int, None). Without this check, .strip() and
+        # .split() raise AttributeError, crashing the PreToolUse hook before
+        # the rest of the handler can safely skip. Treat unusable command
+        # input as 'no command' and skip personality injection for it.
+        if not isinstance(raw_command, str):
+            return True
+        command = raw_command.strip()
         if not command:
             return True
         first_token = command.split()[0]
