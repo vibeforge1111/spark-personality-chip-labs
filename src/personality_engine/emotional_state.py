@@ -306,5 +306,6 @@ def reset_emotional_state() -> None:
     if _STATE_FILE.exists():
         try:
             _STATE_FILE.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            import sys
+            print(f"Warning: failed to unlink emotional state file: {exc}", file=sys.stderr)
