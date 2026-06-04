@@ -213,6 +213,18 @@ def _check_emotional_range(chip: PersonalityChip, text: str) -> list[dict]:
             continue
 
         configured_range = chip.emotional_range.get(emotion, 0.50)
+        # Guard against a non-numeric emotional_range value from a chip whose
+        # emotional_profile.emotional_range overlay slipped past validation
+        # (e.g. an overlay file replaced the dict with one whose values are
+        # strings, None, or other non-scalars — schema.validate_personality
+        # only checks the top-level dict shape when emotional_range comes
+        # from the overlay path, not every value). Without this isinstance
+        # check, `configured_range <= 0.25` raises TypeError and crashes
+        # observe_response, which would propagate out of the PostToolUse
+        # hook handler at hooks.py:281 and disable drift detection for
+        # the rest of the session.
+        if not isinstance(configured_range, (int, float)):
+            continue
 
         # If personality has low range for this emotion but text shows high expression
         if configured_range <= 0.25 and intensity_in_text >= 2:
