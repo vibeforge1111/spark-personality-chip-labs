@@ -235,9 +235,13 @@ def _check_file_cache() -> Optional[PersonalityChip]:
     except (json.JSONDecodeError, IOError):
         return None
 
-    # Check TTL
+    # Check TTL – delete stale file so we don't keep re-parsing it
     cached_at = data.get("cached_at", 0)
     if time.time() - cached_at > CACHE_TTL_SECONDS:
+        try:
+            CACHE_FILE.unlink()
+        except OSError:
+            pass
         return None
 
     # Rebuild chip from cached path
