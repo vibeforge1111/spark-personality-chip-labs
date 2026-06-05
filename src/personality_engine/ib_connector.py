@@ -229,10 +229,17 @@ def build_builder_personality_import(
 
 
 def read_evolver_state(state_path: Path = IB_STATE_PATH) -> Optional[dict]:
-    """Read current PersonalityEvolver state (for diagnostics)."""
+    """Read current PersonalityEvolver state (for diagnostics).
+
+    Returns ``None`` when the file is missing, unreadable, malformed,
+    or parses into a non-object JSON value. Callers (diagnostics,
+    test_hooks_live) assume a ``dict`` so they can ``.get("traits", {})``;
+    returning a list or scalar would raise ``AttributeError`` downstream.
+    """
     if not state_path.exists():
         return None
     try:
-        return json.loads(state_path.read_text(encoding="utf-8"))
+        data = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+    return data if isinstance(data, dict) else None
