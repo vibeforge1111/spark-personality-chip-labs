@@ -271,9 +271,11 @@ def _get_adaptive_instruction(chip: PersonalityChip, user_state: str) -> str | N
     behavior = chip.adaptive.get(key) or chip.adaptive.get(user_state)
 
     if not behavior:
-        # Try partial match
+        # Try partial match. Lower-case the needle once instead of per
+        # iteration of chip.adaptive.items().
+        user_state_lower = user_state.lower()
         for akey, abehavior in chip.adaptive.items():
-            if user_state.lower() in akey.lower():
+            if user_state_lower in akey.lower():
                 behavior = abehavior
                 break
 
