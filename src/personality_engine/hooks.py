@@ -85,7 +85,14 @@ def _should_skip_command(tool_name: str, tool_input: dict[str, Any]) -> bool:
         command = tool_input.get("command", "").strip()
         if not command:
             return True
-        first_token = command.split()[0]
+        # Strip leading env var assignments (e.g., NODE_ENV=production npm install)
+        tokens = command.split()
+        first_token = tokens[0]
+        while "=" in first_token and "/" not in first_token and "\" not in first_token:
+            tokens = tokens[1:]
+            if not tokens:
+                return True
+            first_token = tokens[0]
         base = first_token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         for suffix in (".exe", ".cmd", ".bat", ".ps1"):
             if base.lower().endswith(suffix):
