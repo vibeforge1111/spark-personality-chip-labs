@@ -137,12 +137,25 @@ def set_active_personality(
 
 
 def clear_active_personality() -> None:
-    """Remove the active personality setting."""
+    """Remove the active personality setting.
+
+    If the SPARK_PERSONALITY environment variable is set, it takes priority
+    over the file-based setting. This function only clears the file — the
+    env var must be unset separately by the user.
+    """
     # Use missing_ok=True so a concurrent clear (or pre-cleared state)
     # does not crash with FileNotFoundError; this matches the EAFP style
     # already used for CACHE_FILE.unlink() below.
     ACTIVE_FILE.unlink(missing_ok=True)
     clear_cache()
+    env_id = os.environ.get("SPARK_PERSONALITY", "").strip()
+    if env_id:
+        import warnings
+        warnings.warn(
+            f"SPARK_PERSONALITY env var is set to '{env_id}' and takes "
+            f"precedence. Unset it to fully deactivate the personality.",
+            stacklevel=2,
+        )
 
 
 def get_active_personality_id(project_dir: str = None) -> Optional[str]:
