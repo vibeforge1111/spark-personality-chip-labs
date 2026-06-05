@@ -56,7 +56,7 @@ class PADVector:
             pleasure=d.get("pleasure", 0.0),
             arousal=d.get("arousal", 0.0),
             dominance=d.get("dominance", 0.0),
-        )
+        ).clamp()
 
     def clamp(self) -> "PADVector":
         """Clamp all dimensions to [-1, +1]."""
