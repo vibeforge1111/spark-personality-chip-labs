@@ -59,10 +59,14 @@ Validate a personality file:
 python scripts/validate_personality.py personalities/forge.personality.yaml
 ```
 
-Run the Spark hook:
+Run the Spark hook (reads payload from `--input` and writes JSON to `--output`):
 
 ```bash
-python -m personality_engine.spark_hook personality --payload-json "{\"action\":\"status\"}"
+echo '{"human_id":"human:local:demo","agent_id":"agent:local:demo"}' > /tmp/personality_input.json
+python -m personality_engine.spark_hook personality \
+    --input /tmp/personality_input.json \
+    --output /tmp/personality_output.json
+cat /tmp/personality_output.json
 ```
 
 Set a local active personality from a host Spark environment:
