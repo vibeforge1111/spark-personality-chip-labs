@@ -25,9 +25,12 @@ truth, PersonalityEvolver adapts from there.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from .storage import atomic_write_json
 
@@ -114,7 +117,7 @@ def sync_to_intelligence_builder(
             existing = json.loads(state_path.read_text(encoding="utf-8"))
             existing_count = int(existing.get("interaction_count", 0))
         except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError):
-            pass
+            logger.exception("Failed to read existing evolver state from %s", state_path)
 
     state = {
         "version": IB_STATE_VERSION,
@@ -235,4 +238,5 @@ def read_evolver_state(state_path: Path = IB_STATE_PATH) -> Optional[dict]:
     try:
         return json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        logger.exception("Failed to read evolver state from %s", state_path)
         return None

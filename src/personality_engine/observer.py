@@ -11,10 +11,13 @@ Lightweight: Keyword-based detection, no ML inference required.
 """
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from .schema import PersonalityChip
 
@@ -101,6 +104,7 @@ def get_drift_history(
                     try:
                         entries.append(json.loads(line))
                     except json.JSONDecodeError:
+                        logger.exception("Failed to parse drift log line")
                         continue
     except IOError:
         return []
