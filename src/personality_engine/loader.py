@@ -90,11 +90,15 @@ def load_all_personalities(
     chips = []
     for entry in sorted(directory.iterdir()):
         try:
+            # Skip symlinks to prevent following links planted by an attacker
+            # (CWE-59: Improper Link Resolution Before File Access).
+            if entry.is_symlink():
+                continue
             if entry.is_file() and entry.name.endswith(".personality.yaml") and not entry.name.startswith("_"):
                 chip = load_personality(entry)
                 if chip:
                     chips.append(chip)
-            elif entry.is_dir() and (entry / "personality.yaml").exists():
+            elif entry.is_dir() and not entry.is_symlink() and (entry / "personality.yaml").exists():
                 chip = load_personality(entry)
                 if chip:
                     chips.append(chip)
