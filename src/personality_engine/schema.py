@@ -318,6 +318,15 @@ def validate_personality(spec: dict) -> list[str]:
             if ha and not isinstance(ha, list):
                 errors.append("safety.harm_avoidance must be a list of strings")
 
+            oh = safety.get("override_hierarchy")
+            if oh:
+                if not isinstance(oh, list):
+                    errors.append("safety.override_hierarchy must be a list of strings")
+                else:
+                    for i, item in enumerate(oh):
+                        if not isinstance(item, str):
+                            errors.append(f"safety.override_hierarchy[{i}] must be a string")
+
     return errors
 
 

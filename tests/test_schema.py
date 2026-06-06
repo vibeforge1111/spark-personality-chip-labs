@@ -217,6 +217,22 @@ class TestValidation:
         errors = validate_personality(spec)
         assert any("anti_patterns" in e for e in errors)
 
+    def test_override_hierarchy_element_must_be_string(self):
+        """A non-str override_hierarchy element (e.g. a YAML 'task_completion: high'
+        list item that parses into a dict) must be flagged at validation time so the
+        SessionStart guardrails join doesn't crash with an opaque TypeError."""
+        spec = _minimal_spec()
+        spec["safety"] = {"override_hierarchy": ["safety", {"task_completion": "high"}]}
+        errors = validate_personality(spec)
+        assert any("override_hierarchy" in e for e in errors)
+
+    def test_override_hierarchy_all_strings_valid(self):
+        """A well-formed all-string override_hierarchy must still pass cleanly."""
+        spec = _minimal_spec()
+        spec["safety"] = {"override_hierarchy": ["safety", "user_wellbeing"]}
+        errors = validate_personality(spec)
+        assert errors == []
+
     def test_invalid_tone_shift(self):
         spec = _minimal_spec()
         spec["adaptive"] = {"when_angry": {"tone_shift": "aggressive"}}
