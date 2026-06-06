@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def read_json_object(path: Path) -> dict[str, Any] | None:
@@ -16,6 +19,7 @@ def read_json_object(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        logger.exception("Failed to read JSON from %s", path)
         return None
     return data if isinstance(data, dict) else None
 

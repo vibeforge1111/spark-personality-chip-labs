@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .active import get_active_personality, get_active_personality_id
 from .ib_connector import build_builder_personality_import
@@ -69,6 +72,7 @@ def _read_hook_payload(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, ValueError) as exc:
+        logger.exception("Spark hook input at %s contains invalid JSON", path)
         raise ValueError(f"Spark hook input at {path} contains invalid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("Spark hook input payload must be a JSON object.")

@@ -19,10 +19,13 @@ v2: Uses room_reader for multi-signal user state detection,
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +67,7 @@ def _read_stdin() -> dict[str, Any]:
         if raw.strip():
             return json.loads(raw)
     except (json.JSONDecodeError, OSError):
+        logger.exception("Failed to parse JSON from stdin")
         pass
     return {}
 
