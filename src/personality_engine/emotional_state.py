@@ -22,12 +22,51 @@ Lightweight: ~150 lines, pure math, no external APIs.
 
 from __future__ import annotations
 
+import contextlib
+import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from .storage import atomic_write_json, read_json_object
+
+
+# ---------------------------------------------------------------------------
+# File locking for race-free load-modify-save cycles
+# ---------------------------------------------------------------------------
+
+@contextlib.contextmanager
+def _file_lock(lock_path: Path):
+    """Acquire an exclusive file lock to prevent concurrent state corruption.
+
+    Uses fcntl.flock on POSIX and msvcrt.locking on Windows.
+    Falls back to no-op if neither is available.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = open(lock_path, "w")
+    try:
+        if sys.platform != "win32":
+            import fcntl
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        else:
+            import msvcrt
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_LOCK, 1)
+        yield
+    finally:
+        try:
+            if sys.platform != "win32":
+                import fcntl
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+            else:
+                import msvcrt
+                try:
+                    msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+        finally:
+            lock_fd.close()
 
 
 # ---------------------------------------------------------------------------
@@ -211,25 +250,30 @@ def update_emotional_state(
         Updated PAD vector representing current emotional state
     """
     baseline = get_baseline_pad(chip)
-    current, _ = _load_state()
 
-    # Decay toward baseline
-    current = PADVector(
-        pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
-        arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
-        dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
-    )
+    # Lock prevents concurrent processes from overwriting each other's
+    # state updates (load-modify-save race condition, CWE-362).
+    _lock = _STATE_FILE.with_suffix(".lock")
+    with _file_lock(_lock):
+        current, _ = _load_state()
 
-    # Apply appraisal from user state
-    delta = appraise(user_state, intensity)
-    current = PADVector(
-        pleasure=current.pleasure + delta.pleasure,
-        arousal=current.arousal + delta.arousal,
-        dominance=current.dominance + delta.dominance,
-    ).clamp()
+        # Decay toward baseline
+        current = PADVector(
+            pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
+            arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
+            dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
+        )
 
-    if persist:
-        _save_state(current)
+        # Apply appraisal from user state
+        delta = appraise(user_state, intensity)
+        current = PADVector(
+            pleasure=current.pleasure + delta.pleasure,
+            arousal=current.arousal + delta.arousal,
+            dominance=current.dominance + delta.dominance,
+        ).clamp()
+
+        if persist:
+            _save_state(current)
 
     return current
 
