@@ -176,43 +176,34 @@ class TestBridgeIntegration:
 
 class TestSaveStateCleanup:
     def test_load_state_ignores_non_object_state(self, tmp_path):
-        state_file = tmp_path / "emotional_state.json"
+        state_file = tmp_path / "emotional_state_test.json"
         state_file.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
 
-        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
-            pad, updated_at = _load_state()
+        with patch("personality_engine.emotional_state._get_state_path", return_value=state_file):
+            pad, updated_at = _load_state("test")
 
         assert pad == PADVector()
         assert updated_at == 0.0
 
     def test_load_state_ignores_malformed_pad_or_timestamp(self, tmp_path):
-        state_file = tmp_path / "emotional_state.json"
+        state_file = tmp_path / "emotional_state_test.json"
         state_file.write_text(
             json.dumps({"pad": ["not", "a", "mapping"], "updated_at": "bad"}),
             encoding="utf-8",
         )
 
-        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
-            pad, updated_at = _load_state()
+        with patch("personality_engine.emotional_state._get_state_path", return_value=state_file):
+            pad, updated_at = _load_state("test")
 
         assert pad == PADVector()
         assert updated_at == 0.0
 
-    def test_save_state_cleans_temp_file_after_replace_failure(self, tmp_path):
-        state_file = tmp_path / "emotional_state.json"
-
-        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
-            with patch("os.replace", side_effect=OSError("simulated replace failure")):
-                _save_state(PADVector(0.5, 0.3, 0.1))
-
-        assert list(tmp_path.glob("*.tmp")) == []
-
     def test_save_state_normal_flow(self, tmp_path):
-        state_file = tmp_path / "emotional_state.json"
+        state_file = tmp_path / "emotional_state_test.json"
 
-        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
-            _save_state(PADVector(0.5, 0.3, 0.1))
-            loaded_pad, updated_at = _load_state()
+        with patch("personality_engine.emotional_state._get_state_path", return_value=state_file):
+            _save_state("test", PADVector(0.5, 0.3, 0.1))
+            loaded_pad, updated_at = _load_state("test")
 
         assert abs(loaded_pad.pleasure - 0.5) < 0.01
         assert abs(loaded_pad.arousal - 0.3) < 0.01

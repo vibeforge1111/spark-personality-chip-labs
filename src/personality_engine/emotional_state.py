@@ -111,17 +111,24 @@ _PAD_TO_MOOD = {
 # State persistence
 # ---------------------------------------------------------------------------
 
-_STATE_FILE = Path.home() / ".cache" / "personality-chips" / "emotional_state.json"
+_STATE_DIR = Path.home() / ".cache" / "personality-chips"
 _DECAY_RATE = 0.15       # Fraction to decay per update toward baseline
 _STATE_TTL = 3600        # 1 hour — reset if session gap exceeds this
 
 
-def _load_state() -> tuple[PADVector, float]:
+def _get_state_path(personality_id: str) -> Path:
+    """Return the namespaced state file path for a personality."""
+    safe_id = personality_id.replace("/", "_").replace("\\", "_")
+    return _STATE_DIR / f"emotional_state_{safe_id}.json"
+
+
+def _load_state(personality_id: str) -> tuple[PADVector, float]:
     """Load persisted emotional state. Returns (pad, last_update_timestamp)."""
-    if not _STATE_FILE.exists():
+    state_file = _get_state_path(personality_id)
+    if not state_file.exists():
         return PADVector(), 0.0
     try:
-        data = read_json_object(_STATE_FILE)
+        data = read_json_object(state_file)
         if data is None:
             return PADVector(), 0.0
         pad = PADVector.from_dict(data.get("pad", {}))
@@ -135,10 +142,11 @@ def _load_state() -> tuple[PADVector, float]:
         return PADVector(), 0.0
 
 
-def _save_state(pad: PADVector) -> None:
+def _save_state(personality_id: str, pad: PADVector) -> None:
     """Persist emotional state to disk using atomic write."""
+    state_file = _get_state_path(personality_id)
     atomic_write_json(
-        _STATE_FILE,
+        state_file,
         {"pad": pad.to_dict(), "updated_at": time.time()},
         raise_on_error=False,
     )
@@ -210,8 +218,9 @@ def update_emotional_state(
     Returns:
         Updated PAD vector representing current emotional state
     """
+    personality_id = getattr(chip, "id", "default")
     baseline = get_baseline_pad(chip)
-    current, _ = _load_state()
+    current, _ = _load_state(personality_id)
 
     # Decay toward baseline
     current = PADVector(
@@ -229,7 +238,7 @@ def update_emotional_state(
     ).clamp()
 
     if persist:
-        _save_state(current)
+        _save_state(personality_id, current)
 
     return current
 
@@ -301,10 +310,11 @@ def build_emotional_state_for_bridge(
     }
 
 
-def reset_emotional_state() -> None:
+def reset_emotional_state(personality_id: str = "default") -> None:
     """Reset emotional state (new session or explicit reset)."""
-    if _STATE_FILE.exists():
+    state_file = _get_state_path(personality_id)
+    if state_file.exists():
         try:
-            _STATE_FILE.unlink()
+            state_file.unlink()
         except OSError:
             pass
