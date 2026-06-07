@@ -230,6 +230,9 @@ def _check_emotional_range(chip: PersonalityChip, text: str) -> list[dict]:
 
 # ── Logging ──
 
+_MAX_LOG_LINES = 500  # Rotate after this many entries
+
+
 def _log_drift(personality_id: str, report: dict) -> None:
     """Append drift report to JSONL insights log."""
     INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -250,7 +253,24 @@ def _log_drift(personality_id: str, report: dict) -> None:
     }
 
     try:
+        _rotate_log_if_needed(log_path)
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+    except IOError:
+        pass
+
+
+def _rotate_log_if_needed(log_path: Path) -> None:
+    """Trim JSONL log to the most recent _MAX_LOG_LINES entries."""
+    if not log_path.exists():
+        return
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) <= _MAX_LOG_LINES:
+            return
+        # Keep only the last _MAX_LOG_LINES entries
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.writelines(lines[-_MAX_LOG_LINES:])
     except IOError:
         pass
