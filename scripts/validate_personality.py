@@ -68,6 +68,10 @@ def main():
         print("Usage: python validate_personality.py <file_or_directory>")
         sys.exit(1)
 
+    if sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__)
+        sys.exit(0)
+
     target = Path(sys.argv[1])
 
     print()
