@@ -208,6 +208,29 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
 # Core API
 # ---------------------------------------------------------------------------
 
+# Technical acronyms that should not be flagged as ALL CAPS excitement
+_TECHNICAL_ACRONYMS = frozenset({
+    "API", "URL", "URI", "HTTP", "HTTPS", "JSON", "YAML", "XML", "HTML", "CSS",
+    "SQL", "SSH", "FTP", "DNS", "TCP", "UDP", "IP", "AWS", "GCP", "SDK", "CLI",
+    "GUI", "TUI", "IDE", "RAM", "CPU", "GPU", "SSD", "USB", "NFC", "PDF", "CSV",
+    "SVG", "PNG", "JPG", "GIF", "WEBP", "UTF", "ASCII", "JWT", "OAuth", "CORS",
+    "CSRF", "XSS", "UUID", "SHA", "RSA", "AES", "TLS", "SSL", "LDAP", "SMTP",
+    "IMAP", "NTP", "MQTT", "GRPC", "REST", "SOAP", "CRUD", "ORM", "MVC", "OOP",
+    "LLM", "NLP", "ML", "DL", "RAG", "SFT", "LoRA", "QLoRA", "PAD", "OCEAN",
+    "CI", "CD", "VCS", "PR", "LGTM", "WIP", "FYI", "ETA", "TBD", "TBA",
+})
+
+
+def _matches_syntactic_pattern(pattern: str, text: str) -> bool:
+    """Match a syntactic pattern, filtering out known technical acronyms for ALL CAPS."""
+    if "[A-Z]{3,}" in pattern:
+        for match in re.finditer(pattern, text):
+            if match.group() not in _TECHNICAL_ACRONYMS:
+                return True
+        return False
+    return bool(re.search(pattern, text))
+
+
 def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
     """Read the emotional room from text input.
 
@@ -240,7 +263,7 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
     # Layer 2: Syntactic patterns (no IGNORECASE — case matters for structural signals)
     for state, patterns in _SYNTACTIC_PATTERNS.items():
         for pattern, weight in patterns:
-            if re.search(pattern, text):
+            if _matches_syntactic_pattern(pattern, text):
                 state_scores[state] = state_scores.get(state, 0.0) + weight
                 total_signals += 1
 
