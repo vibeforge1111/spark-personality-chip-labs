@@ -10,6 +10,7 @@ following the same JSONL format as Spark Intelligence Builder.
 Lightweight: Keyword-based detection, no ML inference required.
 """
 
+import fcntl
 import json
 import re
 from datetime import datetime, timezone
