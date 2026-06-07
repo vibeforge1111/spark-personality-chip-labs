@@ -46,6 +46,22 @@ def _safe_log_id(personality_id: str) -> str:
 
 INSIGHTS_DIR = Path.home() / ".spark" / "chip_insights"
 
+# Pattern for safe personality IDs in filenames (alphanumeric, hyphens, underscores)
+_SAFE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$')
+
+
+def _safe_personality_id(personality_id: str) -> str:
+    """Sanitize personality_id for use in file paths.
+
+    Only allows alphanumeric characters, hyphens, and underscores.
+    Prevents path traversal attacks via malicious personality IDs.
+    """
+    if _SAFE_ID_PATTERN.match(personality_id):
+        return personality_id
+    # Fall back to a safe hash-based name
+    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', personality_id)
+    return safe[:64] if safe else "unknown"
+
 
 def observe_response(
     chip: PersonalityChip,
@@ -272,6 +288,7 @@ def _log_drift(personality_id: str, report: dict) -> None:
     if not safe_id:
         return
     INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+
     log_path = INSIGHTS_DIR / f"personality_{safe_id}.jsonl"
 
     entry = {
