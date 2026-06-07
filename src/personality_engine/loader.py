@@ -104,6 +104,15 @@ def load_all_personalities(
     return chips
 
 
+def _deep_merge(base: dict, overlay: dict) -> None:
+    """Recursively merge overlay into base (mutates base)."""
+    for key, value in overlay.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+
+
 def _load_directory(directory: Path) -> dict:
     """
     Load a directory-format personality chip.
@@ -145,7 +154,7 @@ def _load_directory(directory: Path) -> dict:
                         # Use the section key if present, otherwise use root
                         merge_data = overlay_data.get(section_key, overlay_data)
                         if isinstance(merge_data, dict):
-                            existing.update(merge_data)
+                            _deep_merge(existing, merge_data)
                             spec[section_key] = existing
                         else:
                             spec[section_key] = merge_data
