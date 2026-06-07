@@ -19,7 +19,6 @@ Directory format allows modular overrides:
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from .schema import PersonalityChip, validate_personality, build_personality
 
@@ -31,7 +30,7 @@ except ImportError:
 _RECOVERABLE_OVERLAY_ERRORS = (OSError, ValueError) + ((yaml.YAMLError,) if yaml is not None else ())
 
 
-def load_personality(path: str | Path) -> Optional[PersonalityChip]:
+def load_personality(path: str | Path) -> PersonalityChip:
     """
     Load a personality chip from a file or directory.
 
@@ -39,11 +38,11 @@ def load_personality(path: str | Path) -> Optional[PersonalityChip]:
         path: Path to .personality.yaml file or directory containing personality.yaml
 
     Returns:
-        PersonalityChip if valid, None if validation fails.
+        Validated PersonalityChip instance.
 
     Raises:
         FileNotFoundError: If path doesn't exist.
-        ValueError: If YAML parsing fails or validation errors found.
+        ValueError: If YAML parsing fails or chip validation fails.
     """
     path = Path(path)
 
@@ -91,13 +90,9 @@ def load_all_personalities(
     for entry in sorted(directory.iterdir()):
         try:
             if entry.is_file() and entry.name.endswith(".personality.yaml") and not entry.name.startswith("_"):
-                chip = load_personality(entry)
-                if chip:
-                    chips.append(chip)
+                chips.append(load_personality(entry))
             elif entry.is_dir() and (entry / "personality.yaml").exists():
-                chip = load_personality(entry)
-                if chip:
-                    chips.append(chip)
+                chips.append(load_personality(entry))
         except (ValueError, FileNotFoundError) as e:
             print(f"[personality-loader] Skipping {entry.name}: {e}")
 
