@@ -250,7 +250,32 @@ def _log_drift(personality_id: str, report: dict) -> None:
     }
 
     try:
+        # Trim log if it exceeds the max size to prevent unbounded growth
+        _trim_log_if_needed(log_path)
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     except IOError:
         pass
+
+
+# Max log file size (1 MB) — triggers rotation when exceeded
+_MAX_LOG_BYTES = 1 * 1024 * 1024
+_KEEP_LINES = 200  # Keep the most recent N lines on rotation
+
+
+def _trim_log_if_needed(log_path: Path) -> None:
+    """Rotate the JSONL log if it exceeds _MAX_LOG_BYTES."""
+    try:
+        if not log_path.exists():
+            return
+        size = log_path.stat().st_size
+        if size <= _MAX_LOG_BYTES:
+            return
+        with open(log_path, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+        kept = all_lines[-_KEEP_LINES:]
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+    except OSError:
+        pass
+
