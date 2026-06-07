@@ -129,7 +129,10 @@ def _check_anti_patterns(chip: PersonalityChip, text: str) -> list[dict]:
 
     for ap in chip.anti_patterns:
         ap_lower = ap.lower()
+        matched = False
         for keyword, detectors in violation_patterns.items():
+            if matched:
+                break
             if keyword in ap_lower:
                 for detector in detectors:
                     if detector in text_lower:
@@ -138,6 +141,7 @@ def _check_anti_patterns(chip: PersonalityChip, text: str) -> list[dict]:
                             "detail": f"Violated: '{ap}' - detected '{detector}'",
                             "severity": 0.7,
                         })
+                        matched = True
                         break  # One violation per anti-pattern is enough
 
     return signals
