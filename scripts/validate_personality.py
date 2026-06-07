@@ -68,7 +68,7 @@ def main():
         print("Usage: python validate_personality.py <file_or_directory>")
         sys.exit(1)
 
-    target = Path(sys.argv[1])
+    target = Path(sys.argv[1]).expanduser()
 
     print()
     print("=" * 60)
