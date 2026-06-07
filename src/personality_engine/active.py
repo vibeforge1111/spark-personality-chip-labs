@@ -152,10 +152,13 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
         dot_file = Path(project_dir) / ".personality"
         if dot_file.exists():
             try:
+                # Guard against abnormally large files (should only contain a short id)
+                if dot_file.stat().st_size > 4096:
+                    return None, None
                 pid = dot_file.read_text(encoding="utf-8").strip().split("\n")[0].strip()
                 if pid:
                     return pid, None
-            except IOError:
+            except (IOError, OSError):
                 pass
 
     # 4. Nothing active
