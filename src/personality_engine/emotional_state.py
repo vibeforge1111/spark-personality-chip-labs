@@ -159,7 +159,7 @@ def get_baseline_pad(chip) -> PADVector:
     """
     p = (chip.agreeableness - 0.5) * 0.6 + (1.0 - chip.neuroticism - 0.5) * 0.4
     a = (chip.extraversion - 0.5) * 0.6 + (chip.openness - 0.5) * 0.4
-    d = (chip.conscientiousness - 0.5) * 0.5 + (chip.extraversion - 0.5) * 0.3
+    d = (chip.conscientiousness - 0.5) * 0.5 + (chip.extraversion - 0.5) * 0.3 + (chip.openness - 0.5) * 0.2
     return PADVector(pleasure=p, arousal=a, dominance=d).clamp()
 
 
