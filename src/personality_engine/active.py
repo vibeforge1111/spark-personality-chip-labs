@@ -140,7 +140,7 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
         try:
             with open(ACTIVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            pid = data.get("personality_id", "").strip()
+            pid = (data.get("personality_id") or "").strip()
             ppath = data.get("personality_path")
             if pid:
                 return pid, ppath
