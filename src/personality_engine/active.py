@@ -82,14 +82,11 @@ def set_active_personality(
         personality_id: Personality chip id (e.g. "artemis")
         personality_path: Optional explicit path to the personality file
     """
-    ACTIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     data = {"personality_id": personality_id}
     if personality_path:
         data["personality_path"] = str(personality_path)
 
-    with open(ACTIVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    atomic_write_json(ACTIVE_FILE, data)
 
     # Clear caches so next get_active picks up the change
     clear_cache()
