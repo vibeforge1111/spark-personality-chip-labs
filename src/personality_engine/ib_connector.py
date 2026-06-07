@@ -34,6 +34,35 @@ from .storage import atomic_write_json
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
 IB_STATE_VERSION = 1
 
+# Allowed parent directories for evolver_state_path overrides.
+# The default IB_STATE_PATH lives under ~/.spark/; tests may use
+# tempfile paths.  Any path that resolves outside these roots is
+# rejected to prevent arbitrary-file writes via crafted payloads.
+_ALLOWED_EVOLVER_ROOTS: list[Path] = [
+    Path.home() / ".spark",
+    Path.home() / "AppData" / "Local" / "Temp",  # Windows temp
+    Path("/tmp"),                                  # POSIX temp
+]
+
+
+def _validate_evolver_state_path(raw: str | Path) -> Path:
+    """Resolve *raw* and ensure it lives under an allowed root directory.
+
+    Raises ``ValueError`` if the resolved path escapes every allowed root
+    (i.e. a traversal or arbitrary-path write attempt).
+    """
+    resolved = Path(raw).resolve()
+    for root in _ALLOWED_EVOLVER_ROOTS:
+        try:
+            resolved.relative_to(root.resolve())
+            return resolved
+        except ValueError:
+            continue
+    raise ValueError(
+        f"evolver_state_path {raw!r} resolves to {resolved}, which is "
+        "outside allowed directories. Path must be under ~/.spark/."
+    )
+
 
 def map_chip_to_evolver_traits(chip) -> dict[str, float]:
     """Map PersonalityChip OCEAN/EQ traits to PersonalityEvolver's 5 traits.
@@ -212,7 +241,7 @@ def build_builder_personality_import(
     evolver_state_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build the Spark Intelligence Builder personality-hook result payload."""
-    state_path = Path(evolver_state_path) if evolver_state_path else IB_STATE_PATH
+    state_path = _validate_evolver_state_path(evolver_state_path) if evolver_state_path else IB_STATE_PATH
     evolver_state = sync_to_intelligence_builder(chip, state_path=state_path)
     base_traits = dict(evolver_state.get("traits") or map_chip_to_evolver_traits(chip))
     return {
