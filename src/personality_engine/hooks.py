@@ -63,8 +63,10 @@ def _read_stdin() -> dict[str, Any]:
         raw = sys.stdin.read()
         if raw.strip():
             return json.loads(raw)
-    except (json.JSONDecodeError, OSError):
-        pass
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(f"_read_stdin: failed to parse stdin as JSON: {exc}\n")
+    except OSError as exc:
+        sys.stderr.write(f"_read_stdin: failed to read stdin: {exc}\n")
     return {}
 
 
