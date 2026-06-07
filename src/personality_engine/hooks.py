@@ -263,19 +263,13 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
     if not chip:
         return {}
 
-    # Read the room from tool output (e.g., error messages indicate frustration context)
-    try:
-        from .room_reader import read_room
-        from .emotional_state import update_emotional_state
-        reading = read_room(tool_output[:1000])
-        if reading.primary_state:
-            update_emotional_state(
-                chip,
-                user_state=reading.primary_state,
-                intensity=reading.confidence * 0.5,  # Dampen — output signals are indirect
-            )
-    except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"room read failed: {exc}\n")
+    # NOTE: Do NOT read emotional state from tool_output here.
+    # tool_output is the agent's own output (e.g., "I understand you're
+    # frustrated"), not the user's. Feeding it into update_emotional_state
+    # would misattribute the agent's words as the user's emotional state,
+    # causing incorrect emotional drift. Emotional state updates should
+    # only come from PreToolUse (where user input is available) or direct
+    # user interaction hooks.
 
     session_id = f"claude-code-{os.getpid()}"
     report = observe_response(
