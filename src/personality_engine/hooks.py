@@ -57,10 +57,16 @@ _SKIP_COMMANDS = frozenset({
 # Helpers
 # ---------------------------------------------------------------------------
 
+MAX_STDIN_BYTES = 1_000_000  # 1 MB — Claude Code hooks send small JSON payloads
+
+
 def _read_stdin() -> dict[str, Any]:
-    """Read JSON from stdin (Claude Code hook protocol)."""
+    """Read JSON from stdin (Claude Code hook protocol).
+
+    Applies a size limit to prevent memory exhaustion from unbounded input.
+    """
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(MAX_STDIN_BYTES)
         if raw.strip():
             return json.loads(raw)
     except (json.JSONDecodeError, OSError):
