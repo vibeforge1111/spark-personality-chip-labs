@@ -81,6 +81,8 @@ def _is_disabled() -> bool:
 
 def _should_skip_command(tool_name: str, tool_input: dict[str, Any]) -> bool:
     """Fast pre-filter: return True if this tool action never needs personality."""
+    if tool_input is None:
+        return True
     if tool_name == "Bash":
         command = tool_input.get("command", "").strip()
         if not command:
