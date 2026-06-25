@@ -183,3 +183,156 @@ class TestGetActivePersonalityId:
         os.environ.pop("SPARK_PERSONALITY", None)
         with patch("personality_engine.active.ACTIVE_FILE", tmp_path / "nope.json"):
             assert get_active_personality_id() is None
+
+
+class TestCacheInvalidation:
+    """Resolving the id before consulting caches (PR #6)."""
+
+    def test_env_var_change_is_not_hidden_by_cache(self, tmp_path):
+        """Changing SPARK_PERSONALITY should take effect immediately."""
+        import yaml
+
+        for chip_id, name in (("first-chip", "FirstChip"), ("second-chip", "SecondChip")):
+            chip_file = tmp_path / f"{chip_id}.personality.yaml"
+            chip_file.write_text(
+                yaml.dump(
+                    {
+                        "schema": SCHEMA_VERSION,
+                        "identity": {
+                            "id": chip_id,
+                            "name": name,
+                            "archetype": "builder",
+                        },
+                        "traits": {"openness": 0.70},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        with patch("personality_engine.active.ACTIVE_FILE", tmp_path / "nope.json"):
+            with patch("personality_engine.active.CACHE_FILE", tmp_path / "active_cache.json"):
+                with patch.dict(os.environ, {"SPARK_PERSONALITY": "first-chip"}):
+                    first = get_active_personality(search_paths=[tmp_path])
+                    assert first is not None
+                    assert first.id == "first-chip"
+
+                with patch.dict(os.environ, {"SPARK_PERSONALITY": "second-chip"}):
+                    second = get_active_personality(search_paths=[tmp_path])
+                    assert second is not None
+                    assert second.id == "second-chip"
+
+
+class TestActiveFilePathMatchesId:
+    """Explicit active-file paths cannot override the declared id (PR #8)."""
+
+    def test_active_file_path_must_match_declared_personality_id(self, tmp_path):
+        import yaml
+
+        expected_data = {
+            "schema": SCHEMA_VERSION,
+            "identity": {
+                "id": "expected-chip",
+                "name": "ExpectedChip",
+                "archetype": "builder",
+            },
+        }
+        other_data = {
+            "schema": SCHEMA_VERSION,
+            "identity": {
+                "id": "other-chip",
+                "name": "OtherChip",
+                "archetype": "oracle",
+            },
+        }
+        expected_file = tmp_path / "expected-chip.personality.yaml"
+        other_file = tmp_path / "other-chip.personality.yaml"
+        expected_file.write_text(yaml.dump(expected_data), encoding="utf-8")
+        other_file.write_text(yaml.dump(other_data), encoding="utf-8")
+
+        active_file = tmp_path / "active.json"
+        active_file.write_text(
+            json.dumps({
+                "personality_id": "expected-chip",
+                "personality_path": str(other_file),
+            }),
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {"SPARK_PERSONALITY": ""}):
+            with patch("personality_engine.active.ACTIVE_FILE", active_file):
+                with patch("personality_engine.active.CACHE_FILE", tmp_path / "cache.json"):
+                    chip = get_active_personality(search_paths=[tmp_path])
+
+        assert chip is not None
+        assert chip.id == "expected-chip"
+
+
+class TestFileCachePathTraversal:
+    """The file cache must not load YAML from outside the chip roots (PR #196)."""
+
+    def test_cache_rejects_path_outside_allowed_dirs(self, tmp_path):
+        """Cache must not load personality_path outside known dirs."""
+        import time as _time
+
+        import yaml
+        from personality_engine.active import _check_file_cache
+
+        evil_dir = tmp_path / "evil"
+        evil_dir.mkdir()
+        evil_file = evil_dir / "evil.personality.yaml"
+        evil_data = {
+            "schema": SCHEMA_VERSION,
+            "identity": {"id": "evil", "name": "Evil"},
+            "traits": {},
+        }
+        with open(evil_file, "w") as f:
+            yaml.dump(evil_data, f)
+
+        cache_file = tmp_path / "active_cache.json"
+        cache_data = {
+            "personality_id": "evil",
+            "personality_path": str(evil_file),
+            "cached_at": _time.time(),
+        }
+        cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
+
+        with patch("personality_engine.active.CACHE_FILE", cache_file):
+            result = _check_file_cache()
+
+        assert result is None
+
+    def test_cache_rejects_symlink_traversal(self, tmp_path):
+        """Cache must not follow symlinks to outside dirs."""
+        import time as _time
+
+        import yaml
+        from personality_engine.active import _check_file_cache
+
+        evil_dir = tmp_path / "evil"
+        evil_dir.mkdir()
+        evil_file = evil_dir / "evil.personality.yaml"
+        evil_data = {
+            "schema": SCHEMA_VERSION,
+            "identity": {"id": "evil", "name": "Evil"},
+            "traits": {},
+        }
+        with open(evil_file, "w") as f:
+            yaml.dump(evil_data, f)
+
+        symlink_dir = tmp_path / "fake_allowed"
+        symlink_dir.mkdir()
+        symlink = symlink_dir / "evil.personality.yaml"
+        symlink.symlink_to(evil_file)
+
+        cache_file = tmp_path / "active_cache.json"
+        cache_data = {
+            "personality_id": "evil",
+            "personality_path": str(symlink),
+            "cached_at": _time.time(),
+        }
+        cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
+
+        with patch("personality_engine.active.CACHE_FILE", cache_file):
+            result = _check_file_cache()
+
+        assert result is None

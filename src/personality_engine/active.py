@@ -14,6 +14,7 @@ Includes file-based caching with 5-minute TTL for fast hook lookups.
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,48 @@ from .storage import atomic_write_json
 ACTIVE_FILE = Path.home() / ".spark" / "active_personality.json"
 CACHE_FILE = Path.home() / ".cache" / "personality-chips" / "active_cache.json"
 CACHE_TTL_SECONDS = 300  # 5 minutes
+
+# Personality IDs are embedded in file paths and used as lookup keys, so they
+# must not contain path separators or traversal sequences. The pattern is kept
+# deliberately permissive (letters, digits, '_' and '-', any case, length 1-64)
+# so it accepts legitimate custom ids while still rejecting '/', '\\', '.',
+# whitespace and '..' — anything that could escape the chip directories.
+_VALID_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def _safe_personality_id(pid: object) -> Optional[str]:
+    """Validate a personality id for safe use in path construction.
+
+    Returns the trimmed id if it matches the expected format, else None.
+    Prevents path-traversal via malicious personality_id values.
+    """
+    if not pid or not isinstance(pid, str):
+        return None
+    pid = pid.strip()
+    if _VALID_ID_RE.match(pid):
+        return pid
+    return None
+
+
+def _personality_roots() -> list[Path]:
+    """Resolved directories a personality file is allowed to load from."""
+    return [
+        (Path.home() / ".spark" / "chips" / "personality").resolve(),
+        (Path(__file__).parent.parent.parent / "personalities").resolve(),
+    ]
+
+
+def _is_within_roots(path: Path, roots: list[Path]) -> bool:
+    """True if ``path`` is inside one of ``roots`` (real containment, not a
+    string-prefix test — so a sibling like '<root>-evil' cannot escape)."""
+    for root in roots:
+        try:
+            if path == root or path.is_relative_to(root):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
 
 # In-memory cache for same-process reuse
 _memory_cache: dict = {}
@@ -44,22 +87,23 @@ def get_active_personality(
     Returns:
         PersonalityChip if one is active, None otherwise.
     """
+    # Resolve personality id BEFORE consulting caches so an env/project switch
+    # takes effect immediately instead of returning a stale cached chip.
+    personality_id, personality_path = _resolve_personality_id(project_dir)
+    if not personality_id:
+        return None
+
     # Check in-memory cache first
-    cached = _check_memory_cache()
+    cached = _check_memory_cache(expected_id=personality_id)
     if cached is not None:
         return cached
 
     # Check file cache
-    cached = _check_file_cache()
+    cached = _check_file_cache(expected_id=personality_id)
     if cached is not None:
         _memory_cache["chip"] = cached
         _memory_cache["ts"] = time.time()
         return cached
-
-    # Resolve personality id
-    personality_id, personality_path = _resolve_personality_id(project_dir)
-    if not personality_id:
-        return None
 
     # Load the personality chip
     chip = _find_and_load(personality_id, personality_path, search_paths)
@@ -82,14 +126,11 @@ def set_active_personality(
         personality_id: Personality chip id (e.g. "artemis")
         personality_path: Optional explicit path to the personality file
     """
-    ACTIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     data = {"personality_id": personality_id}
     if personality_path:
         data["personality_path"] = str(personality_path)
 
-    with open(ACTIVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    atomic_write_json(ACTIVE_FILE, data)
 
     # Clear caches so next get_active picks up the change
     clear_cache()
@@ -131,16 +172,16 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
     Returns (personality_id, personality_path) or (None, None).
     """
     # 1. Environment variable
-    env_id = os.environ.get("SPARK_PERSONALITY", "").strip()
+    env_id = _safe_personality_id(os.environ.get("SPARK_PERSONALITY", ""))
     if env_id:
         return env_id, None
 
-    # 2. Global active file
+    # 2. ~/.spark/active_personality.json
     if ACTIVE_FILE.exists():
         try:
             with open(ACTIVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            pid = data.get("personality_id", "").strip()
+            pid = _safe_personality_id(data.get("personality_id", ""))
             ppath = data.get("personality_path")
             if pid:
                 return pid, ppath
@@ -152,10 +193,15 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
         dot_file = Path(project_dir) / ".personality"
         if dot_file.exists():
             try:
-                pid = dot_file.read_text(encoding="utf-8").strip().split("\n")[0].strip()
+                # Guard against oversized files — only the first line is needed.
+                if dot_file.stat().st_size > 4096:
+                    return None, None
+                pid = _safe_personality_id(
+                    dot_file.read_text(encoding="utf-8").strip().split("\n")[0].strip()
+                )
                 if pid:
                     return pid, None
-            except IOError:
+            except (IOError, OSError):
                 pass
 
     # 4. Nothing active
@@ -172,12 +218,17 @@ def _find_and_load(
     """Find and load a personality chip by id."""
     from .loader import load_personality
 
-    # If explicit path given, try it first
+    # If explicit path given, try it first — but only from inside the known
+    # personality roots (path-traversal / arbitrary-YAML guard), and only if
+    # the loaded chip's declared id matches the resolved id (an explicit path
+    # cannot override which personality is active).
     if personality_path:
-        p = Path(personality_path)
-        if p.exists():
+        p = Path(personality_path).resolve()
+        if p.exists() and _is_within_roots(p, _personality_roots()):
             try:
-                return load_personality(p)
+                chip = load_personality(p)
+                if chip.id == personality_id:
+                    return chip
             except (ValueError, FileNotFoundError):
                 pass
 
@@ -213,7 +264,7 @@ def _find_and_load(
 
 # ── Caching ──
 
-def _check_memory_cache() -> Optional[PersonalityChip]:
+def _check_memory_cache(expected_id: Optional[str] = None) -> Optional[PersonalityChip]:
     """Check in-memory cache (same process only)."""
     if "chip" not in _memory_cache:
         return None
@@ -221,10 +272,13 @@ def _check_memory_cache() -> Optional[PersonalityChip]:
     if time.time() - ts > CACHE_TTL_SECONDS:
         _memory_cache.clear()
         return None
-    return _memory_cache["chip"]
+    chip = _memory_cache["chip"]
+    if expected_id and chip.id != expected_id:
+        return None
+    return chip
 
 
-def _check_file_cache() -> Optional[PersonalityChip]:
+def _check_file_cache(expected_id: Optional[str] = None) -> Optional[PersonalityChip]:
     """Check file-based cache for cross-process reuse."""
     if not CACHE_FILE.exists():
         return None
@@ -240,14 +294,23 @@ def _check_file_cache() -> Optional[PersonalityChip]:
     if time.time() - cached_at > CACHE_TTL_SECONDS:
         return None
 
-    # Rebuild chip from cached path
+    # Don't serve a cache entry for a different personality than requested.
+    if expected_id and data.get("personality_id") != expected_id:
+        return None
+
+    # Rebuild chip from cached path — only from inside the known personality
+    # roots so a tampered cache cannot make us load arbitrary YAML. Use real
+    # containment (is_relative_to), not a string-prefix test that a sibling
+    # like '<root>-evil' could slip past.
     path = data.get("personality_path")
-    if path and Path(path).exists():
-        from .loader import load_personality
-        try:
-            return load_personality(Path(path))
-        except (ValueError, FileNotFoundError):
-            return None
+    if path:
+        resolved = Path(path).resolve()
+        if resolved.exists() and _is_within_roots(resolved, _personality_roots()):
+            from .loader import load_personality
+            try:
+                return load_personality(resolved)
+            except (ValueError, FileNotFoundError):
+                return None
 
     return None
 
