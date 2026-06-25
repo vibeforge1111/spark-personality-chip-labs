@@ -52,10 +52,22 @@ class PADVector:
     def from_dict(cls, d: dict) -> "PADVector":
         if not isinstance(d, dict):
             return cls()
+
+        def _safe_float(val: object, default: float = 0.0) -> float:
+            """Coerce to float, returning default for non-numeric values."""
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                try:
+                    return float(val)
+                except ValueError:
+                    return default
+            return default
+
         return cls(
-            pleasure=d.get("pleasure", 0.0),
-            arousal=d.get("arousal", 0.0),
-            dominance=d.get("dominance", 0.0),
+            pleasure=max(-1.0, min(1.0, _safe_float(d.get("pleasure")))),
+            arousal=max(-1.0, min(1.0, _safe_float(d.get("arousal")))),
+            dominance=max(-1.0, min(1.0, _safe_float(d.get("dominance")))),
         )
 
     def clamp(self) -> "PADVector":
