@@ -108,7 +108,13 @@ class PersonalityRegistry:
         )
 
     def _load_state(self) -> None:
-        """Load registry state from disk."""
+        """Load registry state from disk.
+
+        Re-hydrates _installed from the persisted ``installed`` array that
+        _save_state writes, so assignments survive a process restart without
+        a filesystem rescan. Each installed entry stores only id/name/archetype,
+        which is enough to satisfy get_personality() lookups.
+        """
         state = read_json_object(self._path)
         if state is None:
             return
@@ -116,6 +122,22 @@ class PersonalityRegistry:
         self._active = active if isinstance(active, dict) else {}
         default = state.get("default")
         self._default = default if isinstance(default, str) else None
+
+        installed = state.get("installed")
+        if isinstance(installed, list):
+            for entry in installed:
+                if not isinstance(entry, dict):
+                    continue
+                chip_id = entry.get("id")
+                if not isinstance(chip_id, str) or not chip_id:
+                    continue
+                name = entry.get("name")
+                archetype = entry.get("archetype")
+                self._installed[chip_id] = PersonalityChip(
+                    id=chip_id,
+                    name=name if isinstance(name, str) and name else chip_id,
+                    archetype=archetype if isinstance(archetype, str) and archetype else "builder",
+                )
 
     def _save_state(self) -> None:
         """Persist registry state to disk."""
