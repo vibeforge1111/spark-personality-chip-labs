@@ -16,7 +16,33 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+# fcntl is POSIX-only; guard the import so the observer module still loads on
+# Windows. When it is unavailable we simply skip advisory file locking.
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows / non-POSIX
+    fcntl = None
+
 from .schema import PersonalityChip
+
+# Validate personality_id for safe use in log file paths. Kept permissive
+# (letters, digits, '_' and '-', any case, length 1-64) so legitimate ids are
+# accepted, while '/', '\\', '.', whitespace and '..' are still rejected.
+_VALID_LOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def _safe_log_id(personality_id: str) -> str:
+    """Return a safe version of personality_id for use in file paths.
+
+    Rejects values containing path separators or outside the expected format.
+    Returns empty string if the ID is unsafe.
+    """
+    if not personality_id or not isinstance(personality_id, str):
+        return ""
+    pid = personality_id.strip()
+    if _VALID_LOG_ID_RE.match(pid):
+        return pid
+    return ""
 
 INSIGHTS_DIR = Path.home() / ".spark" / "chip_insights"
 
@@ -88,7 +114,10 @@ def get_drift_history(
     limit: int = 50,
 ) -> list[dict]:
     """Read recent drift signals from the insights log."""
-    log_path = INSIGHTS_DIR / f"personality_{personality_id}.jsonl"
+    safe_id = _safe_log_id(personality_id)
+    if not safe_id:
+        return []
+    log_path = INSIGHTS_DIR / f"personality_{safe_id}.jsonl"
     if not log_path.exists():
         return []
 
@@ -129,7 +158,10 @@ def _check_anti_patterns(chip: PersonalityChip, text: str) -> list[dict]:
 
     for ap in chip.anti_patterns:
         ap_lower = ap.lower()
+        matched = False
         for keyword, detectors in violation_patterns.items():
+            if matched:
+                break
             if keyword in ap_lower:
                 for detector in detectors:
                     if detector in text_lower:
@@ -138,6 +170,7 @@ def _check_anti_patterns(chip: PersonalityChip, text: str) -> list[dict]:
                             "detail": f"Violated: '{ap}' - detected '{detector}'",
                             "severity": 0.7,
                         })
+                        matched = True
                         break  # One violation per anti-pattern is enough
 
     return signals
@@ -230,13 +263,19 @@ def _check_emotional_range(chip: PersonalityChip, text: str) -> list[dict]:
 
 # ── Logging ──
 
+_MAX_LOG_LINES = 500  # Rotate after this many entries
+
+
 def _log_drift(personality_id: str, report: dict) -> None:
     """Append drift report to JSONL insights log."""
+    safe_id = _safe_log_id(personality_id)
+    if not safe_id:
+        return
     INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = INSIGHTS_DIR / f"personality_{personality_id}.jsonl"
+    log_path = INSIGHTS_DIR / f"personality_{safe_id}.jsonl"
 
     entry = {
-        "chip_id": f"personality_{personality_id}",
+        "chip_id": f"personality_{safe_id}",
         "content": f"Drift detected (score: {report['drift_score']})",
         "confidence": 1.0 - report["drift_score"],
         "timestamp": report["timestamp"],
@@ -250,7 +289,32 @@ def _log_drift(personality_id: str, report: dict) -> None:
     }
 
     try:
+        _rotate_log_if_needed(log_path)
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
+            if fcntl is not None:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    f.write(json.dumps(entry) + "\n")
+                    f.flush()
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+            else:
+                f.write(json.dumps(entry) + "\n")
+    except IOError:
+        pass
+
+
+def _rotate_log_if_needed(log_path: Path) -> None:
+    """Trim JSONL log to the most recent _MAX_LOG_LINES entries."""
+    if not log_path.exists():
+        return
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) <= _MAX_LOG_LINES:
+            return
+        # Keep only the last _MAX_LOG_LINES entries
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.writelines(lines[-_MAX_LOG_LINES:])
     except IOError:
         pass
