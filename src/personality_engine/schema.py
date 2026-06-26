@@ -333,9 +333,16 @@ def build_personality(spec: dict) -> PersonalityChip:
     consciousness = spec.get("consciousness", {})
     safety = spec.get("safety", {})
 
+    chip_id = identity.get("id") or ""
+    chip_name = identity.get("name") or ""
+    if not chip_id:
+        raise ValueError("Personality chip 'identity.id' is required but missing or empty.")
+    if not chip_name:
+        raise ValueError("Personality chip 'identity.name' is required but missing or empty.")
+
     return PersonalityChip(
-        id=identity["id"],
-        name=identity["name"],
+        id=chip_id,
+        name=chip_name,
         archetype=identity.get("archetype", "builder"),
         voice_signature=identity.get("voice_signature", ""),
         tagline=identity.get("tagline", ""),
