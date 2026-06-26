@@ -61,9 +61,13 @@ def cmd_activate(personality_id: str):
 
     if not match:
         print(f"Personality '{personality_id}' not found.")
-        print("Available personalities:")
-        for chip in chips:
-            print(f"  - {chip.id}")
+        if chips:
+            print("Available personalities:")
+            for chip in chips:
+                print(f"  - {chip.id}")
+        else:
+            print("No personality chips are installed.")
+            print("Place .personality.yaml files in personalities/ or ~/.spark/chips/personality/")
         sys.exit(1)
 
     set_active_personality(personality_id)
