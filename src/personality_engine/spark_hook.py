@@ -57,8 +57,18 @@ def handle_personality_hook(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_output(path: Path, payload: dict[str, Any]) -> None:
+    import tempfile
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", dir=path.parent, encoding="utf-8", delete=False) as tmp:
+            tmp.write(json.dumps(payload, indent=2))
+            tmp_path = Path(tmp.name)
+        tmp_path.replace(path)
+    except BaseException:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _read_hook_payload(path: Path) -> dict[str, Any]:
