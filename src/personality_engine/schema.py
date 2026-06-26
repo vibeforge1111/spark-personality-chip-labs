@@ -333,6 +333,13 @@ def build_personality(spec: dict) -> PersonalityChip:
     consciousness = spec.get("consciousness", {})
     safety = spec.get("safety", {})
 
+    # Guard: identity must contain required keys
+    missing = [k for k in ("id", "name") if k not in identity]
+    if missing:
+        raise ValueError(
+            f"build_personality: identity dict missing required key(s): {', '.join(missing)}"
+        )
+
     return PersonalityChip(
         id=identity["id"],
         name=identity["name"],
