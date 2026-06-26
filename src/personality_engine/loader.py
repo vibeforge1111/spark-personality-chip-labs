@@ -168,8 +168,7 @@ def _load_directory(directory: Path) -> dict:
         custom_data = _load_yaml(custom_path)
         if isinstance(custom_data, dict):
             for key, value in custom_data.items():
-                if key not in spec:
-                    spec[key] = value
+                spec[key] = value
 
     return spec
 
