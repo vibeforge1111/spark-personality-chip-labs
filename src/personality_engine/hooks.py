@@ -163,7 +163,7 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     # Reset emotional state for fresh session
     try:
         from .emotional_state import reset_emotional_state
-        reset_emotional_state()
+        reset_emotional_state(personality_id=chip.id)
     except (ImportError, OSError, ValueError) as exc:
         sys.stderr.write(f"emotional reset failed: {exc}\n")
 
