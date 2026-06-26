@@ -109,7 +109,7 @@ _SYNTACTIC_PATTERNS: dict[str, list[tuple[str, float]]] = {
     ],
     "rushed": [
         (r"\b(just|quick|fast)\b", 0.3),  # Speed indicators
-        (r"^(do|fix|make|run)\b", 0.3),   # Imperative starts
+        (r"^(do|fix|make|run)\b", 0.3),   # Imperative starts (case-insensitive)
     ],
     "exhausted": [
         (r"\b(sigh|ugh|meh)\b", 0.5),  # Fatigue markers
@@ -248,10 +248,16 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
             state_scores[state] = state_scores.get(state, 0.0) + score
             total_signals += hits
 
-    # Layer 2: Syntactic patterns (no IGNORECASE — case matters for structural signals)
+    # Layer 2: Syntactic patterns
+    # ALL CAPS pattern needs case sensitivity; others use IGNORECASE
     for state, patterns in _SYNTACTIC_PATTERNS.items():
         for pattern, weight in patterns:
-            if re.search(pattern, text):
+            if "A-Z" in pattern:
+                # ALL CAPS detection must be case-sensitive
+                if re.search(pattern, text):
+                    state_scores[state] = state_scores.get(state, 0.0) + weight
+                    total_signals += 1
+            elif re.search(pattern, text, re.IGNORECASE):
                 state_scores[state] = state_scores.get(state, 0.0) + weight
                 total_signals += 1
 
@@ -318,10 +324,15 @@ def read_room_from_hook_input(tool_input: dict) -> RoomReading:
         if isinstance(val, str) and val.strip():
             text_parts.append(val)
 
-    # File paths can hint at urgency (hotfix, quick-fix, etc.)
+    # File paths can hint at urgency (hotfix, quick-fix, etc.) but the
+    # full path must not be concatenated into emotional text, as paths
+    # like /home/user/frustrated/bug.py would match emotional keywords.
     fp = tool_input.get("file_path", "")
     if isinstance(fp, str) and fp:
-        text_parts.append(fp)
+        import os as _os
+        basename = _os.path.basename(fp)
+        if basename:
+            text_parts.append(basename)
 
     return read_room(" ".join(text_parts)) if text_parts else RoomReading()
 
