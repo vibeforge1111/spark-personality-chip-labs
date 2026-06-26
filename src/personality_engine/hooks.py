@@ -299,11 +299,15 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
         sys.stderr.write(f"room read failed: {exc}\n")
 
     session_id = f"claude-code-{os.getpid()}"
-    report = observe_response(
-        chip,
-        tool_output[:2000],  # Cap analysis length
-        session_id=session_id,
-    )
+    try:
+        report = observe_response(
+            chip,
+            tool_output[:2000],  # Cap analysis length
+            session_id=session_id,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"drift observation failed: {exc}\n")
+        return {}
 
     # Only surface to agent if meaningful drift detected
     if report["drift_score"] >= 0.3:
@@ -400,7 +404,14 @@ def main() -> None:
         sys.exit(1)
 
     input_data = _read_stdin()
-    result = handler(input_data)
+    try:
+        result = handler(input_data)
+    except Exception as exc:
+        print(
+            json.dumps({"error": f"Hook {hook_name} failed: {exc}"}),
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if result:
         _write_stdout(result)
