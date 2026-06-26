@@ -90,3 +90,28 @@ def test_assign_unknown_personality_names_empty_registry_explicitly(tmp_path):
     message = str(exc_info.value)
     assert "any-id" in message
     assert "Installed personalities: (none)." in message
+
+
+def test_registry_restores_installed_chips_on_reload(tmp_path):
+    """A registry written and reloaded must remember installed chips.
+
+    Re-hydration reads the persisted ``installed`` array back into
+    _installed (no filesystem rescan), so a fresh PersonalityRegistry
+    pointed at the same JSON keeps assign()/get_personality() working
+    after a process restart. The test stays isolated by using only the
+    tmp_path registry file — it never reads the real ~/.spark home.
+    """
+    registry_path = tmp_path / "personality_registry.json"
+    registry_a = PersonalityRegistry(registry_path)
+    chip = _make_chip()
+    registry_a.install(chip)
+    registry_a.assign("agent-99", chip.id)
+
+    # Confirm the persisted JSON carries the installed entry we rehydrate from.
+    state = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert any(entry["id"] == chip.id for entry in state["installed"])
+
+    registry_b = PersonalityRegistry(registry_path)
+    reloaded = registry_b.get_personality("agent-99")
+    assert reloaded is not None, "Registry must survive process restart"
+    assert reloaded.id == chip.id

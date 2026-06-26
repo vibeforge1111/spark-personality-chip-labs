@@ -57,10 +57,16 @@ _SKIP_COMMANDS = frozenset({
 # Helpers
 # ---------------------------------------------------------------------------
 
+MAX_STDIN_BYTES = 1_000_000  # 1 MB — Claude Code hooks send small JSON payloads
+
+
 def _read_stdin() -> dict[str, Any]:
-    """Read JSON from stdin (Claude Code hook protocol)."""
+    """Read JSON from stdin (Claude Code hook protocol).
+
+    Applies a size limit to prevent memory exhaustion from unbounded input.
+    """
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(MAX_STDIN_BYTES)
         if raw.strip():
             return json.loads(raw)
     except (json.JSONDecodeError, OSError):
@@ -85,7 +91,22 @@ def _should_skip_command(tool_name: str, tool_input: dict[str, Any]) -> bool:
         command = tool_input.get("command", "").strip()
         if not command:
             return True
-        first_token = command.split()[0]
+        # Strip env var assignments (e.g. FOO=bar BAZ=1 cmd ...)
+        # and 'env' prefix to find the real command
+        tokens = command.split()
+        while tokens:
+            token = tokens[0]
+            if "=" in token and not token.startswith("="):
+                tokens = tokens[1:]  # skip env var assignment
+            elif token == "env":
+                tokens = tokens[1:]  # skip 'env' prefix
+            else:
+                break
+        if not tokens:
+            return True
+        first_token = tokens[0]
+        # Strip quotes
+        first_token = first_token.strip("'\"")
         base = first_token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         for suffix in (".exe", ".cmd", ".bat", ".ps1"):
             if base.lower().endswith(suffix):

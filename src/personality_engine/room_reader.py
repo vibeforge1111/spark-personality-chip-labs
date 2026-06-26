@@ -81,6 +81,18 @@ _KEYWORD_SIGNALS: dict[str, list[str]] = {
 }
 
 # Layer 2: Syntactic signals (structural patterns)
+# Technical acronyms that are always uppercase — not excitement markers
+_EXCITEMENT_CAPS_EXCLUDE = frozenset({
+    "API", "HTTP", "HTTPS", "URL", "URI", "JSON", "YAML", "XML", "HTML", "CSS",
+    "SQL", "SSH", "FTP", "TCP", "UDP", "IP", "DNS", "TLS", "SSL", "JWT", "OAuth",
+    "SDK", "CLI", "GUI", "IDE", "VM", "AWS", "GCP", "CPU", "GPU", "RAM", "SSD",
+    "HDD", "USB", "BIOS", "EFI", "GRUB", "NFS", "SMB", "LDAP", "SMTP", "IMAP",
+    "PNG", "JPEG", "GIF", "SVG", "PDF", "CSV", "UTF", "ASCII", "UUID", "GUID",
+    "POSIX", "MSYS", "MINGW", "WSL", "GPU", "CUDA", "RTOS", "FIFO", "LIFO",
+    "NULL", "NONE", "TRUE", "FALSE", "TODO", "FIXME", "HACK", "NOTE", "WARN",
+    "ERR", "INFO", "DEBUG", "TRACE", "FATAL",
+})
+
 _SYNTACTIC_PATTERNS: dict[str, list[tuple[str, float]]] = {
     "frustrated": [
         (r"[!?]{2,}", 0.6),          # Multiple !! or ??
@@ -94,7 +106,6 @@ _SYNTACTIC_PATTERNS: dict[str, list[tuple[str, float]]] = {
     ],
     "excited": [
         (r"[!]{2,}", 0.5),           # Multiple exclamation marks
-        (r"\b[A-Z]{3,}\b", 0.4),     # ALL CAPS words
     ],
     "rushed": [
         (r"\b(just|quick|fast)\b", 0.3),  # Speed indicators
@@ -243,6 +254,13 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
             if re.search(pattern, text):
                 state_scores[state] = state_scores.get(state, 0.0) + weight
                 total_signals += 1
+
+    # ALL CAPS excitement detection — exclude technical acronyms
+    caps_words = re.findall(r"\b[A-Z]{3,}\b", text)
+    excited_caps = [w for w in caps_words if w not in _EXCITEMENT_CAPS_EXCLUDE]
+    if excited_caps:
+        state_scores["excited"] = state_scores.get("excited", 0.0) + 0.4
+        total_signals += 1
 
     # Layer 3: Discourse markers
     for state, markers in _DISCOURSE_MARKERS.items():
