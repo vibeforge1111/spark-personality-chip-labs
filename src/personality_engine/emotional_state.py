@@ -255,7 +255,7 @@ def pad_to_primary_emotion(pad: PADVector) -> str:
     best = "steady"
     best_score = -1.0
 
-    for emotion, min_p, min_a, min_d, threshold in _PAD_TO_EMOTION:
+    for emotion, min_p, min_a, min_d, _threshold in _PAD_TO_EMOTION:
         if pad.pleasure >= min_p and pad.arousal >= min_a and pad.dominance >= min_d:
             # Score = how well the PAD vector fits this region
             score = (
