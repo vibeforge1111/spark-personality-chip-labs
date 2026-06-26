@@ -122,6 +122,17 @@ class PersonalityRegistry:
         self._active = active if isinstance(active, dict) else {}
         default = state.get("default")
         self._default = default if isinstance(default, str) else None
+        # Reconstruct installed chips from saved metadata
+        installed_list = state.get("installed", [])
+        if isinstance(installed_list, list):
+            for entry in installed_list:
+                if isinstance(entry, dict) and "id" in entry and "name" in entry:
+                    chip = PersonalityChip(
+                        id=entry["id"],
+                        name=entry["name"],
+                        archetype=entry.get("archetype", "builder"),
+                    )
+                    self._installed[chip.id] = chip
 
         installed = state.get("installed")
         if isinstance(installed, list):
