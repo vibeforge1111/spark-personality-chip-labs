@@ -63,9 +63,9 @@ def _write_output(path: Path, payload: dict[str, Any]) -> None:
 
 def _read_hook_payload(path: Path) -> dict[str, Any]:
     if not path.exists():
-        raise ValueError("Spark hook input file not found.")
+        raise ValueError(f"Spark hook input file not found: {path}.")
     if path.stat().st_size > MAX_HOOK_INPUT_BYTES:
-        raise ValueError("Spark hook input payload is too large.")
+        raise ValueError(f"Spark hook input payload at {path} is too large.")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, ValueError) as exc:
