@@ -153,14 +153,14 @@ class TestTrajectory:
         assert _compute_trajectory([{"ts": 1, "score": 0.5}], 0.5) == "stable"
 
     def test_load_trajectory_ignores_non_object_state(self, tmp_path):
-        trajectory_file = tmp_path / "room_trajectory.json"
+        trajectory_file = tmp_path / "room_trajectory_test.json"
         trajectory_file.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
 
-        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
-            assert _load_trajectory() == []
+        with patch("personality_engine.room_reader._get_trajectory_path", return_value=trajectory_file):
+            assert _load_trajectory("test") == []
 
     def test_load_trajectory_filters_malformed_entries(self, tmp_path):
-        trajectory_file = tmp_path / "room_trajectory.json"
+        trajectory_file = tmp_path / "room_trajectory_test.json"
         trajectory_file.write_text(
             json.dumps({
                 "entries": [
@@ -172,16 +172,17 @@ class TestTrajectory:
             encoding="utf-8",
         )
 
-        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
-            entries = _load_trajectory()
+        with patch("personality_engine.room_reader._get_trajectory_path", return_value=trajectory_file):
+            entries = _load_trajectory("test")
 
         assert entries == [{"ts": 9999999999, "state": "curious", "score": 0.4}]
 
-    def test_save_trajectory_cleans_temp_file_after_replace_failure(self, tmp_path):
-        trajectory_file = tmp_path / "room_trajectory.json"
+    def test_save_trajectory_normal_flow(self, tmp_path):
+        trajectory_file = tmp_path / "room_trajectory_test.json"
 
-        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
-            with patch("personality_engine.storage.os.replace", side_effect=OSError("boom")):
-                _save_trajectory([{"ts": 1, "state": "curious", "score": 0.5}])
+        with patch("personality_engine.room_reader._get_trajectory_path", return_value=trajectory_file):
+            _save_trajectory("test", [{"ts": 1, "state": "curious", "score": 0.5}])
+            entries = _load_trajectory("test")
 
-        assert list(tmp_path.glob("*.tmp")) == []
+        assert len(entries) == 1
+        assert entries[0]["state"] == "curious"

@@ -212,12 +212,12 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return {}
 
-    chip = get_active_personality()
+    chip = get_active_personality(project_dir=input_data.get("cwd", ""))
     if not chip:
         return {}
 
     # Multi-signal room reading (replaces old _detect_user_state)
-    reading = read_room_from_hook_input(tool_input)
+    reading = read_room_from_hook_input(tool_input, personality_id=chip.id)
     if not reading.primary_state or reading.confidence < 0.25:
         return {}  # No confident state detected, skip injection
 
@@ -280,7 +280,7 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return {}
 
-    chip = get_active_personality()
+    chip = get_active_personality(project_dir=input_data.get("cwd", ""))
     if not chip:
         return {}
 
@@ -288,7 +288,7 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
     try:
         from .room_reader import read_room
         from .emotional_state import update_emotional_state
-        reading = read_room(tool_output[:1000])
+        reading = read_room(tool_output[:1000], personality_id=chip.id)
         if reading.primary_state:
             update_emotional_state(
                 chip,
