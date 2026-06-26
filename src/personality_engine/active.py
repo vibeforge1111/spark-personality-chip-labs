@@ -289,8 +289,17 @@ def _check_file_cache(expected_id: Optional[str] = None) -> Optional[Personality
     except (json.JSONDecodeError, IOError):
         return None
 
-    # Check TTL
+    # Check TTL — guard against non-numeric cached_at from a hand-edited or
+    # partially written cache file. ~/.cache/personality-chips/active_cache.json
+    # is user-writable runtime state; without this guard, a string or None
+    # value here raises TypeError in `time.time() - cached_at` and the
+    # SessionStart hook (which calls get_active_personality with no outer
+    # try/except around _check_file_cache) crashes the entire personality
+    # context injection — the agent runs without the active chip's voice,
+    # mood, or guardrails.
     cached_at = data.get("cached_at", 0)
+    if not isinstance(cached_at, (int, float)):
+        return None
     if time.time() - cached_at > CACHE_TTL_SECONDS:
         return None
 
