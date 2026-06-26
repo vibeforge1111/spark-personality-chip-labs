@@ -76,8 +76,12 @@ def _read_stdin() -> dict[str, Any]:
 
 def _write_stdout(data: dict[str, Any]) -> None:
     """Write JSON to stdout."""
-    sys.stdout.write(json.dumps(data))
-    sys.stdout.flush()
+    try:
+        sys.stdout.write(json.dumps(data))
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # Parent process closed the pipe (timeout, kill) — exit gracefully
+        pass
 
 
 def _is_disabled() -> bool:
