@@ -44,3 +44,19 @@ def test_personality_cli_truly_unknown_command_still_errors() -> None:
 
     assert result.returncode == 1
     assert "Unknown command: frobnicate" in result.stdout
+
+
+def test_personality_cli_activate_chip_typo_suggests_closest() -> None:
+    result = _run_cli("activate", "artemiss")
+
+    assert result.returncode == 1
+    assert "Personality 'artemiss' not found." in result.stdout
+    assert "Did you mean 'artemis'?" in result.stdout
+
+
+def test_personality_cli_activate_unrelated_chip_no_suggestion() -> None:
+    result = _run_cli("activate", "frobnicate")
+
+    assert result.returncode == 1
+    assert "Personality 'frobnicate' not found." in result.stdout
+    assert "Did you mean" not in result.stdout
