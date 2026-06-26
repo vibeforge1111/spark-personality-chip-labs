@@ -210,7 +210,17 @@ def clear_bridge(bridge_path: Path = BRIDGE_FILE) -> None:
 
 def _map_verbosity(chip: PersonalityChip) -> str:
     """Map personality verbosity to bridge.v1 enum: concise|medium|structured."""
-    raw = chip.communication.get("verbosity", "moderate")
+    # Guard against a non-dict chip.communication. PersonalityChip declares
+    # communication as dict (default {}), but an overlay merge that bypassed
+    # schema dict-shape validation can leave the value as a string, list, or
+    # None. Without this isinstance check, the bare `.get()` raises
+    # AttributeError, which propagates out of build_bridge_payload ->
+    # write_bridge -> the SessionStart hook chain at hooks.py:131. The
+    # SessionStart hook does catch (ImportError, OSError) there, but NOT
+    # AttributeError — so a single malformed chip kills the consciousness
+    # bridge write for the whole session.
+    comm = chip.communication if isinstance(chip.communication, dict) else {}
+    raw = comm.get("verbosity", "moderate")
     return _VERBOSITY_MAP.get(raw, "medium")
 
 
