@@ -183,6 +183,15 @@ def _check_voice_consistency(chip: PersonalityChip, text: str) -> list[dict]:
     comm = chip.communication
     if not comm:
         return signals
+    # Guard against a non-dict communication value. `if not comm` already
+    # short-circuits for empty dict / None / [] / 0 / '' — BUT a truthy
+    # non-empty list (['terse']), a string ('terse'), or another scalar
+    # would slip past and crash `comm.get('verbosity', ...)` with
+    # AttributeError. That exception propagates out of observe_response and
+    # kills the PostToolUse drift detection for the rest of the session,
+    # silencing the consciousness bridge feedback loop.
+    if not isinstance(comm, dict):
+        return signals
 
     verbosity = comm.get("verbosity", "moderate")
     formality = comm.get("formality", "professional")
