@@ -125,6 +125,7 @@ _PAD_TO_MOOD = {
 
 _STATE_FILE = Path.home() / ".cache" / "personality-chips" / "emotional_state.json"
 _DECAY_RATE = 0.15       # Fraction to decay per update toward baseline
+_DECAY_INTERVAL = 10.0   # Seconds: reference interval for time-proportional decay
 _STATE_TTL = 3600        # 1 hour — reset if session gap exceeds this
 
 
@@ -223,13 +224,17 @@ def update_emotional_state(
         Updated PAD vector representing current emotional state
     """
     baseline = get_baseline_pad(chip)
-    current, _ = _load_state()
+    current, ts = _load_state()
 
-    # Decay toward baseline
+    # Decay toward baseline (time-proportional)
+    now = time.time()
+    elapsed = now - ts if ts > 0 else _DECAY_INTERVAL
+    time_factor = max(0.0, elapsed / _DECAY_INTERVAL)
+    effective_decay = 1.0 - (1.0 - _DECAY_RATE) ** time_factor
     current = PADVector(
-        pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
-        arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
-        dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
+        pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * effective_decay,
+        arousal=current.arousal + (baseline.arousal - current.arousal) * effective_decay,
+        dominance=current.dominance + (baseline.dominance - current.dominance) * effective_decay,
     )
 
     # Apply appraisal from user state
