@@ -26,7 +26,7 @@ from personality_engine.active import (
     clear_active_personality,
     ACTIVE_FILE,
 )
-from personality_engine.bridge import build_bridge_payload, read_bridge, BRIDGE_FILE
+from personality_engine.bridge import build_bridge_payload, read_bridge, clear_bridge, BRIDGE_FILE
 
 
 def cmd_list():
@@ -78,6 +78,7 @@ def cmd_deactivate():
     """Clear the active personality."""
     current = get_active_personality_id()
     clear_active_personality()
+    clear_bridge()
     if current:
         print(f"Deactivated personality: {current}")
     else:
