@@ -80,6 +80,27 @@ def write_bridge(
     return payload
 
 
+def _build_dynamic_emotional_state(chip: PersonalityChip) -> dict:
+    """Build emotional_state block using dynamic PAD tracking.
+
+    Falls back to static trait-derived values if emotional_state module
+    is unavailable or raises an error.
+    """
+    try:
+        from .emotional_state import build_emotional_state_for_bridge
+        return build_emotional_state_for_bridge(chip)
+    except Exception:
+        # Fallback: static values derived from personality traits
+        return {
+            "mood": _MOOD_TO_SPARK.get(chip.default_mood, chip.default_mood),
+            "intensity": _compute_baseline_intensity(chip),
+            "continuity_influence": chip.carry_over_weight,
+            "primary_emotion": _MOOD_TO_EMOTION.get(chip.default_mood, "steady"),
+            "confidence": 0.85,
+            "staleness_seconds": 0,
+        }
+
+
 def build_bridge_payload(
     chip: PersonalityChip,
     session_id: str = "default",
@@ -103,14 +124,7 @@ def build_bridge_payload(
             "scope": "runtime",
         },
 
-        "emotional_state": {
-            "mood": _MOOD_TO_SPARK.get(chip.default_mood, chip.default_mood),
-            "intensity": _compute_baseline_intensity(chip),
-            "continuity_influence": chip.carry_over_weight,
-            "primary_emotion": _MOOD_TO_EMOTION.get(chip.default_mood, "steady"),
-            "confidence": 0.85,
-            "staleness_seconds": 0,
-        },
+        "emotional_state": _build_dynamic_emotional_state(chip),
 
         "guidance": {
             "response_pace": _compute_pace(chip),
