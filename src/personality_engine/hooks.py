@@ -140,7 +140,17 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return {}
 
-    cwd = input_data.get("cwd", "")
+    # Guard against a non-string cwd value from a malformed SessionStart
+    # payload. The Claude Code hook protocol declares cwd as a string, but a
+    # future protocol revision or a buggy upstream caller could send a list,
+    # dict, int, or None. Without this isinstance check, get_active_personality
+    # passes the value straight into _resolve_personality_id which calls
+    # Path(project_dir) — that raises TypeError for non-PathLike inputs,
+    # crashing the whole SessionStart hook before any personality context is
+    # injected. Treat malformed cwd as 'no project dir' and continue with
+    # env-var / global-active-file resolution.
+    raw_cwd = input_data.get("cwd", "")
+    cwd = raw_cwd if isinstance(raw_cwd, str) else ""
     chip = get_active_personality(project_dir=cwd)
     if not chip:
         return {}
