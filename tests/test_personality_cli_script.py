@@ -44,3 +44,20 @@ def test_personality_cli_truly_unknown_command_still_errors() -> None:
 
     assert result.returncode == 1
     assert "Unknown command: frobnicate" in result.stdout
+    # Unrelated token: no suggestion line.
+    assert "Did you mean" not in result.stdout
+
+
+def test_personality_cli_typo_suggests_closest_command() -> None:
+    result = _run_cli("activat")
+
+    assert result.returncode == 1
+    assert "Unknown command: activat" in result.stdout
+    assert "Did you mean 'activate'?" in result.stdout
+
+
+def test_personality_cli_typo_bridg_suggests_bridge() -> None:
+    result = _run_cli("bridg")
+
+    assert result.returncode == 1
+    assert "Did you mean 'bridge'?" in result.stdout
