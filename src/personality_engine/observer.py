@@ -123,13 +123,26 @@ def get_drift_history(
 
     entries = []
     try:
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
+        with open(log_path, "rb") as f:
+            # Read file in reverse to avoid loading entire file into memory.
+            # Collect lines from the end, stopping once we have enough.
+            f.seek(0, 2)  # seek to end
+            file_size = f.tell()
+            block_size = 8192
+            tail = b""
+            while file_size > 0 and len(entries) < limit:
+                read_size = min(block_size, file_size)
+                file_size -= read_size
+                f.seek(file_size)
+                tail = f.read(read_size) + tail
+
+            # Process collected bytes, decode lines
+            for line in tail.split(b"\n"):
                 line = line.strip()
                 if line:
                     try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
+                        entries.append(json.loads(line.decode("utf-8")))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
                         continue
     except IOError:
         return []
