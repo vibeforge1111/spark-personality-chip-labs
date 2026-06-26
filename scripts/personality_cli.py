@@ -90,6 +90,7 @@ def cmd_status():
     print("Personality Chip Status")
     print("=" * 40)
 
+    broken_active = False
     if pid:
         print(f"Active personality: {pid}")
         chip = get_active_personality()
@@ -100,6 +101,7 @@ def cmd_status():
                 print(f"  Voice:     {chip.voice_signature}")
         else:
             print(f"  (could not load personality '{pid}')")
+            broken_active = True
     else:
         print("Active personality: None")
 
@@ -117,6 +119,10 @@ def cmd_status():
         meta = bridge.get("meta", {})
         print(f"  Personality: {meta.get('personality_name', 'unknown')}")
         print(f"  Stale: {stale}")
+
+    if broken_active:
+        return 1
+    return None
 
 
 def cmd_bridge():
@@ -147,7 +153,8 @@ def main():
     elif command == "deactivate":
         cmd_deactivate()
     elif command == "status":
-        cmd_status()
+        if cmd_status() is not None:
+            sys.exit(1)
     elif command == "bridge":
         cmd_bridge()
     else:
