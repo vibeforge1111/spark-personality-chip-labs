@@ -61,7 +61,34 @@ def load_personality(path: str | Path) -> Optional[PersonalityChip]:
             + "\n".join(f"  - {e}" for e in errors)
         )
 
-    return build_personality(spec)
+    chip = build_personality(spec)
+    _log_chip_defaults(spec, chip, path)
+    return chip
+
+
+def _log_chip_defaults(spec: dict, chip: object, path: "Path") -> None:
+    """Print a one-line info message for each personality key that was absent (using default)."""
+    defaults_used: list[str] = []
+    identity = spec.get("identity", {})
+    if "archetype" not in identity:
+        defaults_used.append(f"identity.archetype={getattr(chip, 'archetype', 'builder')!r}")
+    traits = spec.get("traits", {})
+    for trait in ("openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"):
+        if trait not in traits:
+            defaults_used.append(f"traits.{trait}={getattr(chip, trait, 0.50):.2f}")
+    ep = spec.get("emotional_profile", {})
+    if "empathy_style" not in ep:
+        defaults_used.append(f"emotional_profile.empathy_style={getattr(chip, 'empathy_style', 'reflective')!r}")
+    consciousness = spec.get("consciousness", {})
+    if "default_mood" not in consciousness:
+        defaults_used.append(f"consciousness.default_mood={getattr(chip, 'default_mood', 'builder')!r}")
+    if defaults_used:
+        chip_id = getattr(chip, "id", str(path))
+        print(
+            f"[personality-loader] {chip_id}: using defaults for "
+            + ", ".join(defaults_used)
+            + "; set in personality.yaml to customize."
+        )
 
 
 def load_all_personalities(
