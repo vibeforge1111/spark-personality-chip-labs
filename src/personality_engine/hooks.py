@@ -69,7 +69,7 @@ def _read_stdin() -> dict[str, Any]:
         raw = sys.stdin.read(MAX_STDIN_BYTES)
         if raw.strip():
             return json.loads(raw)
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):
         pass
     return {}
 
