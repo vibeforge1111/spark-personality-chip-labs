@@ -334,7 +334,15 @@ def get_trajectory_summary() -> dict:
 
     recent = entries[-_WINDOW_SIZE:]
     states = [e.get("state", "neutral") for e in recent]
-    scores = [e.get("score", 0.0) for e in recent]
+    # Guard against non-numeric persisted 'score' values from the user-writable
+    # trajectory file (~/.cache/personality-chips/room_trajectory.json). Without
+    # the isinstance filter, a hand-edited or version-drifted entry with a
+    # string/None score raises TypeError in `sum(scores) / len(scores)` and in
+    # `_compute_trajectory(... scores[-1])` further down. That TypeError
+    # propagates out of get_trajectory_summary into any caller that surfaces
+    # the trajectory summary in personality context — silently disabling the
+    # adaptive personality state for the rest of the session.
+    scores = [e.get("score", 0.0) for e in recent if isinstance(e.get("score", 0.0), (int, float))]
 
     return {
         "trajectory": _compute_trajectory(recent, scores[-1] if scores else 0.0),
