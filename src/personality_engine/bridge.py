@@ -23,6 +23,7 @@ from typing import Optional
 
 from .schema import PersonalityChip
 from .storage import atomic_write_json, read_json_object
+from .sanitization import _sanitize_for_prompt
 
 BRIDGE_DIR = Path.home() / ".spark" / "bridges" / "consciousness"
 BRIDGE_FILE = BRIDGE_DIR / "emotional_context.v1.json"
@@ -120,7 +121,7 @@ def build_bridge_payload(
         },
 
         "mission": {
-            "anchor": f"Serve as {chip.name} ({chip.archetype})",
+            "anchor": f"Serve as {_sanitize_for_prompt(chip.name)} ({_sanitize_for_prompt(chip.archetype)})",
             "kernel": {
                 "non_harm": True,
                 "service": True,
@@ -138,7 +139,7 @@ def build_bridge_payload(
         "meta": {
             "ttl_seconds": 120,
             "personality_id": chip.id,
-            "personality_name": chip.name,
+            "personality_name": _sanitize_for_prompt(chip.name),
         },
 
         # ── Personality-specific extensions ──
