@@ -137,6 +137,10 @@ def main():
 
     command = sys.argv[1].strip().lower()
 
+    if command in ("-h", "--help", "help"):
+        print(__doc__)
+        sys.exit(0)
+
     if command == "list":
         cmd_list()
     elif command == "activate":
