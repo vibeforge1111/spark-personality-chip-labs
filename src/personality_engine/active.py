@@ -289,9 +289,13 @@ def _check_file_cache(expected_id: Optional[str] = None) -> Optional[Personality
     except (json.JSONDecodeError, IOError):
         return None
 
-    # Check TTL
+    # Check TTL – delete stale file so we don't keep re-parsing it
     cached_at = data.get("cached_at", 0)
     if time.time() - cached_at > CACHE_TTL_SECONDS:
+        try:
+            CACHE_FILE.unlink()
+        except OSError:
+            pass
         return None
 
     # Don't serve a cache entry for a different personality than requested.
