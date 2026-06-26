@@ -37,7 +37,8 @@ def cmd_list():
         print("Place .personality.yaml files in personalities/ or ~/.spark/chips/personality/")
         return
 
-    print(f"Found {len(chips)} personality chip(s):\n")
+    noun = "chip" if len(chips) == 1 else "chips"
+    print(f"Found {len(chips)} personality {noun}:\n")
     for chip in chips:
         print(f"  {chip.id}")
         print(f"    Name:      {chip.name}")
