@@ -9,7 +9,10 @@ Also supports direct hook invocation:
     python -m personality_engine.hooks session_start
 """
 
+import difflib
 import sys
+
+_KNOWN_SUBCOMMANDS = ("hooks",)
 
 
 def main():
@@ -31,8 +34,12 @@ def main():
         from .hooks import main as hooks_main
         hooks_main()
     else:
+        msg = f"Unknown subcommand: {subcommand!r}. Known subcommands: hooks"
+        suggestion = difflib.get_close_matches(subcommand, _KNOWN_SUBCOMMANDS, n=1, cutoff=0.6)
+        if suggestion:
+            msg += f"\nDid you mean {suggestion[0]!r}?"
         print(
-            f"Unknown subcommand: {subcommand!r}. Known subcommands: hooks",
+            msg,
             file=sys.stderr,
         )
         sys.exit(1)
