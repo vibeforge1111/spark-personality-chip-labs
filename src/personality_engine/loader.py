@@ -61,7 +61,9 @@ def load_personality(path: str | Path) -> Optional[PersonalityChip]:
             + "\n".join(f"  - {e}" for e in errors)
         )
 
-    return build_personality(spec)
+    chip = build_personality(spec)
+    chip.source_path = str(path)
+    return chip
 
 
 def load_all_personalities(

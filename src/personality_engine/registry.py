@@ -34,8 +34,8 @@ class PersonalityRegistry:
         self._default: Optional[str] = None
         self._load_state()
 
+
     def install(self, chip: PersonalityChip) -> None:
-        """Register a personality chip as available."""
         self._installed[chip.id] = chip
         self._save_state()
 
@@ -145,7 +145,7 @@ class PersonalityRegistry:
             "active": self._active,
             "default": self._default,
             "installed": [
-                {"id": chip.id, "name": chip.name, "archetype": chip.archetype}
+                {"id": chip.id, "name": chip.name, "archetype": chip.archetype, "path": chip.source_path}
                 for chip in self._installed.values()
             ],
         }
