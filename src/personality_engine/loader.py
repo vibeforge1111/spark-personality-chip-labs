@@ -28,7 +28,7 @@ try:
 except ImportError:
     yaml = None  # Handled in _load_yaml
 
-_RECOVERABLE_OVERLAY_ERRORS = (OSError, ValueError) + ((yaml.YAMLError,) if yaml is not None else ())
+_RECOVERABLE_OVERLAY_ERRORS = (OSError, ValueError, ImportError) + ((yaml.YAMLError,) if yaml is not None else ())
 
 
 def load_personality(path: str | Path) -> Optional[PersonalityChip]:
@@ -98,7 +98,7 @@ def load_all_personalities(
                 chip = load_personality(entry)
                 if chip:
                     chips.append(chip)
-        except (ValueError, FileNotFoundError) as e:
+        except (ValueError, FileNotFoundError, ImportError) as e:
             print(f"[personality-loader] Skipping {entry.name}: {e}")
 
     return chips
