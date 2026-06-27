@@ -79,6 +79,23 @@ class TestLoadSingleFile:
         with pytest.raises(ValueError, match="validation failed"):
             load_personality(bad)
 
+    def test_load_malformed_override_hierarchy_raises(self, tmp_path):
+        """A YAML list item like '- task_completion: high' parses into a dict, which
+        used to pass validation and then crash the SessionStart guardrails join with an
+        opaque TypeError. It must now fail loudly at load time with a clean ValueError."""
+        bad = tmp_path / "override.personality.yaml"
+        bad.write_text(
+            "identity:\n"
+            "  id: override-bot\n"
+            "  name: OverrideBot\n"
+            "safety:\n"
+            "  override_hierarchy:\n"
+            "    - safety\n"
+            "    - task_completion: high\n"
+        )
+        with pytest.raises(ValueError, match="override_hierarchy"):
+            load_personality(bad)
+
 
 @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
 class TestLoadMultifile:
