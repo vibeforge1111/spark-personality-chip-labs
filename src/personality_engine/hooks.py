@@ -69,8 +69,10 @@ def _read_stdin() -> dict[str, Any]:
         raw = sys.stdin.read(MAX_STDIN_BYTES)
         if raw.strip():
             return json.loads(raw)
-    except (json.JSONDecodeError, OSError):
-        pass
+    except json.JSONDecodeError as exc:
+        sys.stderr.write("[spark-personality] hooks: malformed stdin JSON: " + str(exc) + "\n")
+    except OSError as exc:
+        sys.stderr.write("[spark-personality] hooks: stdin read error: " + str(exc) + "\n")
     return {}
 
 
