@@ -216,6 +216,9 @@ def _find_and_load(
     search_paths: list[Path] = None,
 ) -> Optional[PersonalityChip]:
     """Find and load a personality chip by id."""
+    import re
+    if not personality_id or not re.match(r'^[a-zA-Z0-9_-]+$', personality_id):
+        return None
     from .loader import load_personality
 
     # If explicit path given, try it first — but only from inside the known
