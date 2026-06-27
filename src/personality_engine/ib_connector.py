@@ -25,11 +25,14 @@ truth, PersonalityEvolver adapts from there.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 from .storage import atomic_write_json
+
+logger = logging.getLogger(__name__)
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
 IB_STATE_VERSION = 1
@@ -131,8 +134,13 @@ def sync_to_intelligence_builder(
     state_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         atomic_write_json(state_path, state)
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning(
+            "Failed to write IB state to %s: %s — callers will see stale state",
+            state_path,
+            exc,
+        )
+        raise
 
     return state
 
