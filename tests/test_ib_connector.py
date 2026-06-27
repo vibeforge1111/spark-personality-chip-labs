@@ -4,6 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from personality_engine.schema import PersonalityChip
 from personality_engine.ib_connector import (
     build_builder_behavioral_rules,
@@ -12,6 +14,7 @@ from personality_engine.ib_connector import (
     map_chip_to_evolver_traits,
     sync_to_intelligence_builder,
     read_evolver_state,
+    _validate_evolver_state_path,
 )
 
 
@@ -192,3 +195,34 @@ class TestReadEvolverState:
             path.write_text(json.dumps({"version": 1, "traits": {"warmth": 0.6}}))
             state = read_evolver_state(path)
             assert state["traits"]["warmth"] == 0.6
+
+
+class TestValidateEvolverStatePath:
+    def test_accepts_path_under_spark_dir(self):
+        valid = Path.home() / ".spark" / "test_state.json"
+        result = _validate_evolver_state_path(valid)
+        assert result == valid.resolve()
+
+    def test_rejects_absolute_path_outside_allowed(self):
+        with pytest.raises(ValueError, match="outside allowed directories"):
+            _validate_evolver_state_path("/etc/evil.json")
+
+    def test_rejects_path_traversal(self):
+        with pytest.raises(ValueError, match="outside allowed directories"):
+            _validate_evolver_state_path(
+                str(Path.home() / ".spark" / ".." / ".." / "etc" / "evil.json")
+            )
+
+    def test_rejects_windows_system_path(self):
+        with pytest.raises(ValueError, match="outside allowed directories"):
+            _validate_evolver_state_path("C:\\Windows\\System32\\config\\sam")
+
+    def test_accepts_tempdir_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "evolver.json"
+            result = _validate_evolver_state_path(path)
+            assert result == path.resolve()
+
+    def test_rejects_relative_traversal(self):
+        with pytest.raises(ValueError, match="outside allowed directories"):
+            _validate_evolver_state_path("../../../../etc/passwd")
