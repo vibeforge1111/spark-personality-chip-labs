@@ -75,7 +75,7 @@ def _read_hook_payload(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _error_output(message: str) -> dict[str, Any]:
+def _error_output(message: str, error_type: str = "Exception") -> dict[str, Any]:
     return {
         "returncode": 1,
         "stdout": "",
@@ -83,6 +83,7 @@ def _error_output(message: str) -> dict[str, Any]:
         "metrics": {},
         "result": {},
         "error": message,
+        "error_type": error_type,
     }
 
 
@@ -102,7 +103,10 @@ def main() -> int:
             raise ValueError(f"Unsupported hook: {args.hook!r}. Supported hooks: 'personality'.")
         result = handle_personality_hook(payload)
     except Exception as exc:
-        _write_output(output_path, _error_output(str(exc)))
+        _write_output(
+            output_path,
+            _error_output(str(exc), error_type=type(exc).__name__),
+        )
         return 1
 
     _write_output(output_path, result)
