@@ -171,3 +171,52 @@ def test_corrupt_overlay_produces_warning_not_silent_skip(tmp_path):
     warnings = chip._raw.get("_overlay_load_warnings", [])
     assert len(warnings) >= 1, f"Expected warning for corrupt overlay, got {warnings}"
     assert any("safety.yaml" in w for w in warnings), f"Warning must name safety.yaml: {warnings}"
+
+
+class TestDeepMergeRecursionGuard:
+
+    def test_normal_deep_merge_works(self):
+        """Shallow merges should work as before."""
+        from personality_engine.loader import _deep_merge
+        base = {"a": {"b": {"c": 1}}, "d": 2}
+        overlay = {"a": {"b": {"e": 3}}, "f": 4}
+        _deep_merge(base, overlay)
+        assert base == {"a": {"b": {"c": 1, "e": 3}}, "d": 2, "f": 4}
+
+    def test_deeply_nested_merge_succeeds_within_limit(self):
+        """Nesting within the 32-level limit should succeed."""
+        from personality_engine.loader import _deep_merge
+        # Build 20-level deep dicts (well under limit)
+        base = {}
+        overlay = {}
+        ref_b = base
+        ref_o = overlay
+        for i in range(20):
+            ref_b[f"level_{i}"] = {}
+            ref_o[f"level_{i}"] = {}
+            ref_b = ref_b[f"level_{i}"]
+            ref_o = ref_o[f"level_{i}"]
+        ref_b["leaf"] = "original"
+        ref_o["leaf"] = "overridden"
+        _deep_merge(base, overlay)
+        # Navigate to leaf
+        ref = base
+        for i in range(20):
+            ref = ref[f"level_{i}"]
+        assert ref["leaf"] == "overridden"
+
+    def test_exceeding_depth_raises_recursion_error(self):
+        """Nesting beyond the 32-level limit should raise RecursionError."""
+        from personality_engine.loader import _deep_merge, _MAX_MERGE_DEPTH
+        # Build dicts nested deeper than the limit
+        base = {}
+        overlay = {}
+        ref_b = base
+        ref_o = overlay
+        for i in range(_MAX_MERGE_DEPTH + 5):
+            ref_b[f"level_{i}"] = {}
+            ref_o[f"level_{i}"] = {}
+            ref_b = ref_b[f"level_{i}"]
+            ref_o = ref_o[f"level_{i}"]
+        with pytest.raises(RecursionError, match="exceeded"):
+            _deep_merge(base, overlay)

@@ -104,11 +104,22 @@ def load_all_personalities(
     return chips
 
 
-def _deep_merge(base: dict, overlay: dict) -> None:
-    """Recursively merge overlay into base (mutates base)."""
+_MAX_MERGE_DEPTH = 32
+
+
+def _deep_merge(base: dict, overlay: dict, *, _current_depth: int = 0) -> None:
+    """Recursively merge overlay into base (mutates base).
+
+    Raises RecursionError if nesting exceeds _MAX_MERGE_DEPTH levels.
+    """
+    if _current_depth >= _MAX_MERGE_DEPTH:
+        raise RecursionError(
+            f"Deep merge exceeded {_MAX_MERGE_DEPTH} levels — "
+            "input is likely cyclic or pathologically nested"
+        )
     for key, value in overlay.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-            _deep_merge(base[key], value)
+            _deep_merge(base[key], value, _current_depth=_current_depth + 1)
         else:
             base[key] = value
 
