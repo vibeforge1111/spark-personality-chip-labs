@@ -32,6 +32,7 @@ from typing import Any, Optional
 from .storage import atomic_write_json
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
+SPARK_HOME = Path.home() / ".spark"
 IB_STATE_VERSION = 1
 
 
@@ -213,6 +214,12 @@ def build_builder_personality_import(
 ) -> dict[str, Any]:
     """Build the Spark Intelligence Builder personality-hook result payload."""
     state_path = Path(evolver_state_path) if evolver_state_path else IB_STATE_PATH
+    resolved = state_path.resolve()
+    if not resolved.is_relative_to(SPARK_HOME.resolve()):
+        raise ValueError(
+            f"evolver_state_path '{state_path}' is outside the allowed directory '{SPARK_HOME}'. "
+            "Refusing to write to arbitrary paths."
+        )
     evolver_state = sync_to_intelligence_builder(chip, state_path=state_path)
     base_traits = dict(evolver_state.get("traits") or map_chip_to_evolver_traits(chip))
     return {
