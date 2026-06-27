@@ -155,3 +155,28 @@ class TestAdaptive:
         ctx = build_personality_context(chip, style="adaptive")
         # Should fall back to concise
         assert "ContextTest" in ctx
+
+
+class TestUnknownStyleWarning:
+
+    def test_unknown_style_emits_warning(self):
+        chip = _make_chip()
+        with pytest.warns(UserWarning, match="Unknown context style 'compact'"):
+            ctx = build_personality_context(chip, style="compact")
+        # Still returns valid output (falls back to concise)
+        assert "ContextTest" in ctx
+
+    def test_unknown_style_returns_concise_output(self):
+        chip = _make_chip()
+        with pytest.warns(UserWarning):
+            unknown_ctx = build_personality_context(chip, style="compact")
+        concise_ctx = build_personality_context(chip, style="concise")
+        assert unknown_ctx == concise_ctx
+
+    def test_known_styles_do_not_warn(self):
+        chip = _make_chip()
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            for style in ("concise", "detailed", "guardrails", "adaptive"):
+                build_personality_context(chip, style=style)

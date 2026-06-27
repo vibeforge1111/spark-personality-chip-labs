@@ -12,6 +12,8 @@ Three modes matching Spark Intelligence Builder's context injector:
 Output is plain markdown — no special tokens, no framework coupling.
 """
 
+import warnings
+
 from .schema import PersonalityChip
 
 
@@ -41,6 +43,12 @@ def build_personality_context(
     elif style == "adaptive":
         return _build_adaptive(chip, user_state)
     else:
+        warnings.warn(
+            f"Unknown context style '{style}', falling back to 'concise'. "
+            f"Valid styles: concise, detailed, guardrails, adaptive",
+            UserWarning,
+            stacklevel=2,
+        )
         return _build_concise(chip, user_state)
 
 
