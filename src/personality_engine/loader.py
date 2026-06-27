@@ -124,7 +124,18 @@ def _load_directory(directory: Path) -> dict:
 
     spec = _load_yaml(base_file)
 
-    # Overlay files — each merges into a specific section
+    # Overlay files — each merges into a specific section.
+    #
+    # MERGE BEHAVIOR (asymmetric by section type):
+    #   - Dict sections (traits, emotional_profile, preferences, adaptive,
+    #     consciousness, safety): merged via dict.update(), so overlay keys
+    #     override matching base keys but unmatched base keys are preserved.
+    #   - List sections (vulnerabilities, strengths): overlay items are
+    #     *appended* to the base list, so both base and overlay entries
+    #     are retained.  Earlier versions replaced the list entirely;
+    #     this was an undocumented asymmetry that silently discarded
+    #     base entries when an overlay was present.
+
     overlay_map = {
         "traits.yaml": "traits",
         "emotional.yaml": "emotional_profile",
@@ -147,10 +158,14 @@ def _load_directory(directory: Path) -> dict:
                 )
                 continue
             if isinstance(overlay_data, dict):
-                # For list sections (vulnerabilities, strengths), replace entirely
+                # List sections: append overlay items to existing base list
                 if section_key in ("vulnerabilities", "strengths"):
                     items = overlay_data.get(section_key, overlay_data)
-                    spec[section_key] = items if isinstance(items, list) else [items]
+                    overlay_items = items if isinstance(items, list) else [items]
+                    existing_list = spec.get(section_key, [])
+                    if not isinstance(existing_list, list):
+                        existing_list = [existing_list]
+                    spec[section_key] = existing_list + overlay_items
                 else:
                     existing = spec.get(section_key, {})
                     if isinstance(existing, dict) and isinstance(overlay_data, dict):
