@@ -150,14 +150,14 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     # Write the consciousness bridge for Spark Consciousness to read
     try:
         write_bridge(chip, session_id=session_id)
-    except (ImportError, OSError) as exc:
+    except (ImportError, OSError, ValueError) as exc:
         sys.stderr.write(f"bridge write failed: {exc}\n")  # non-blocking
 
     # Sync personality traits to Intelligence Builder's PersonalityEvolver
     try:
         from .ib_connector import sync_to_intelligence_builder
         sync_to_intelligence_builder(chip)
-    except (ImportError, OSError) as exc:
+    except (ImportError, OSError, ValueError) as exc:
         sys.stderr.write(f"IB sync failed: {exc}\n")  # non-blocking
 
     # Reset emotional state for fresh session
