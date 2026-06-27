@@ -137,7 +137,8 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
         from .active import get_active_personality
         from .context import build_personality_context
         from .bridge import write_bridge
-    except ImportError:
+    except ImportError as exc:
+        sys.stderr.write(f"personality imports failed: {exc}\n")
         return {}
 
     cwd = input_data.get("cwd", "")
@@ -209,7 +210,8 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
         from .active import get_active_personality
         from .context import build_personality_context
         from .room_reader import read_room_from_hook_input
-    except ImportError:
+    except ImportError as exc:
+        sys.stderr.write(f"personality imports failed: {exc}\n")
         return {}
 
     chip = get_active_personality()
@@ -277,7 +279,8 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
     try:
         from .active import get_active_personality
         from .observer import observe_response
-    except ImportError:
+    except ImportError as exc:
+        sys.stderr.write(f"personality imports failed: {exc}\n")
         return {}
 
     chip = get_active_personality()
