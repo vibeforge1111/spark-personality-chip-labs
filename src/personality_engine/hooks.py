@@ -148,10 +148,12 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     session_id = f"claude-code-{os.getpid()}"
 
     # Write the consciousness bridge for Spark Consciousness to read
+    subsystem_failures: list[str] = []
     try:
         write_bridge(chip, session_id=session_id)
     except (ImportError, OSError) as exc:
         sys.stderr.write(f"bridge write failed: {exc}\n")  # non-blocking
+        subsystem_failures.append(f"consciousness_bridge: {exc}")
 
     # Sync personality traits to Intelligence Builder's PersonalityEvolver
     try:
@@ -159,6 +161,7 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
         sync_to_intelligence_builder(chip)
     except (ImportError, OSError) as exc:
         sys.stderr.write(f"IB sync failed: {exc}\n")  # non-blocking
+        subsystem_failures.append(f"intelligence_builder_sync: {exc}")
 
     # Reset emotional state for fresh session
     try:
@@ -166,6 +169,7 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
         reset_emotional_state()
     except (ImportError, OSError, ValueError) as exc:
         sys.stderr.write(f"emotional reset failed: {exc}\n")
+        subsystem_failures.append(f"emotional_state_reset: {exc}")
 
     # Build personality context for the agent
     concise = build_personality_context(chip, style="concise")
@@ -175,12 +179,22 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     if guardrails:
         context += f"\n\n{guardrails}"
 
-    return {
+    result: dict[str, Any] = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": context,
         }
     }
+
+    if subsystem_failures:
+        result["hookSpecificOutput"]["subsystemFailures"] = subsystem_failures
+        result["hookSpecificOutput"]["personalityDegraded"] = True
+        failure_summary = "; ".join(subsystem_failures)
+        result["hookSpecificOutput"]["additionalContext"] += (
+            f"\n\n⚠️ Personality subsystems degraded: {failure_summary}"
+        )
+
+    return result
 
 
 def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
