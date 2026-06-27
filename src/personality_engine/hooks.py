@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -91,29 +92,39 @@ def _should_skip_command(tool_name: str, tool_input: dict[str, Any]) -> bool:
         command = tool_input.get("command", "").strip()
         if not command:
             return True
-        # Strip env var assignments (e.g. FOO=bar BAZ=1 cmd ...)
-        # and 'env' prefix to find the real command
-        tokens = command.split()
-        while tokens:
-            token = tokens[0]
-            if "=" in token and not token.startswith("="):
-                tokens = tokens[1:]  # skip env var assignment
-            elif token == "env":
-                tokens = tokens[1:]  # skip 'env' prefix
-            else:
-                break
-        if not tokens:
-            return True
-        first_token = tokens[0]
-        # Strip quotes
-        first_token = first_token.strip("'\"")
-        base = first_token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        for suffix in (".exe", ".cmd", ".bat", ".ps1"):
-            if base.lower().endswith(suffix):
-                base = base[: -len(suffix)]
-                break
-        if base.lower() in _SKIP_COMMANDS:
-            return True
+        # Split on shell operators to handle chained commands.
+        # "cd /tmp && python app.py" should NOT be skipped just because
+        # the first segment is "cd".
+        segments = re.split(r"\s*(?:&&|\|\||;)\s*", command)
+        for segment in segments:
+            seg = segment.strip()
+            if not seg:
+                continue
+            # Strip env var assignments (e.g. FOO=bar BAZ=1 cmd ...)
+            # and 'env' prefix to find the real command
+            tokens = seg.split()
+            while tokens:
+                token = tokens[0]
+                if "=" in token and not token.startswith("="):
+                    tokens = tokens[1:]  # skip env var assignment
+                elif token == "env":
+                    tokens = tokens[1:]  # skip 'env' prefix
+                else:
+                    break
+            if not tokens:
+                continue
+            first_token = tokens[0]
+            # Strip quotes
+            first_token = first_token.strip("'\"")
+            base = first_token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            for suffix in (".exe", ".cmd", ".bat", ".ps1"):
+                if base.lower().endswith(suffix):
+                    base = base[: -len(suffix)]
+                    break
+            if base.lower() not in _SKIP_COMMANDS:
+                # At least one segment does real work — don't skip
+                return False
+        return True
     return False
 
 
