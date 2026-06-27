@@ -165,7 +165,10 @@ def _load_directory(directory: Path) -> dict:
     # Custom overlay — merges at root level for any extra sections
     custom_path = directory / "custom.yaml"
     if custom_path.exists():
-        custom_data = _load_yaml(custom_path)
+        try:
+            custom_data = _load_yaml(custom_path)
+        except Exception:
+            custom_data = None
         if isinstance(custom_data, dict):
             for key, value in custom_data.items():
                 if key not in spec:
