@@ -123,18 +123,35 @@ def get_drift_history(
 
     entries = []
     try:
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
+        file_size = log_path.stat().st_size
+        if file_size < 1_048_576:
+            with open(log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+                return entries[-limit:]
+        read_size = min(file_size, 262_144)
+        with open(log_path, "rb") as f:
+            f.seek(max(0, file_size - read_size))
+            chunk = f.read().decode("utf-8", errors="replace")
+        for line in reversed(chunk.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+            if len(entries) >= limit:
+                break
+        entries.reverse()
+        return entries
     except IOError:
         return []
-
-    return entries[-limit:]
 
 
 # ── Detection Functions ──
