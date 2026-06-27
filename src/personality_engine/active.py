@@ -272,7 +272,9 @@ def _check_memory_cache(expected_id: Optional[str] = None) -> Optional[Personali
     if time.time() - ts > CACHE_TTL_SECONDS:
         _memory_cache.clear()
         return None
-    chip = _memory_cache["chip"]
+    chip = _memory_cache.get("chip")
+    if chip is None:
+        return None
     if expected_id and chip.id != expected_id:
         return None
     return chip
