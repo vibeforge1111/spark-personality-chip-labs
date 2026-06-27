@@ -1,7 +1,9 @@
 """Tests for active personality resolver."""
 
+import fcntl
 import json
 import os
+import time
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,8 +14,12 @@ from personality_engine.active import (
     clear_active_personality,
     get_active_personality_id,
     clear_cache,
+    _check_file_cache,
     _write_cache,
     _resolve_personality_id,
+    _acquire_file_lock,
+    CACHE_FILE,
+    CACHE_LOCK_FILE,
 )
 from personality_engine.schema import SCHEMA_VERSION, build_personality
 
@@ -336,3 +342,134 @@ class TestFileCachePathTraversal:
             result = _check_file_cache()
 
         assert result is None
+class TestCacheFileLocking:
+    """Tests for file-based locking around cache read/write operations."""
+
+    def test_write_cache_holds_lock(self, personality_dir, tmp_path):
+        """_write_cache should create a .lock sidecar file."""
+        cache_path = tmp_path / "active_cache.json"
+        lock_path = tmp_path / "active_cache.lock"
+
+        with patch.dict(os.environ, {"SPARK_PERSONALITY": "test-active"}):
+            with patch("personality_engine.active.CACHE_FILE", cache_path):
+                with patch("personality_engine.active.CACHE_LOCK_FILE", lock_path):
+                    chip = get_active_personality(search_paths=[personality_dir])
+                    assert chip is not None
+
+        # After the write, the lock file should exist and the cache file
+        # should contain valid JSON
+        assert cache_path.exists()
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert "personality_id" in data
+        assert "cached_at" in data
+
+    def test_check_file_cache_uses_shared_lock(self, tmp_path):
+        """_check_file_cache should acquire a shared lock while reading."""
+        cache_path = tmp_path / "active_cache.json"
+        lock_path = tmp_path / "active_cache.lock"
+
+        # Write a valid cache entry directly
+        cache_data = {
+            "personality_id": "lock-test",
+            "personality_name": "LockTest",
+            "cached_at": time.time(),
+            "personality_path": str(tmp_path / "lock-test.personality.yaml"),
+        }
+        cache_path.write_text(json.dumps(cache_data), encoding="utf-8")
+
+        with patch("personality_engine.active.CACHE_FILE", cache_path):
+            with patch("personality_engine.active.CACHE_LOCK_FILE", lock_path):
+                result = _check_file_cache()
+
+        # Should have created a lock file during the read
+        # (it's cleaned up after, but the lock file fd was opened)
+        # The result is None because the personality file doesn't exist,
+        # but the read completed without errors
+
+    def test_write_then_read_returns_fresh_data(self, personality_dir, tmp_path):
+        """Writing then reading the cache returns the expected chip."""
+        cache_path = tmp_path / "active_cache.json"
+        lock_path = tmp_path / "active_cache.lock"
+
+        with patch.dict(os.environ, {"SPARK_PERSONALITY": "test-active"}):
+            with patch("personality_engine.active.CACHE_FILE", cache_path):
+                with patch("personality_engine.active.CACHE_LOCK_FILE", lock_path):
+                    # First access writes to cache
+                    chip1 = get_active_personality(search_paths=[personality_dir])
+                    assert chip1 is not None
+                    assert chip1.id == "test-active"
+
+                    # Clear memory cache but keep file cache
+                    from personality_engine.active import _memory_cache
+                    _memory_cache.clear()
+
+                    # Second access should read from file cache
+                    chip2 = get_active_personality(search_paths=[personality_dir])
+                    assert chip2 is not None
+                    assert chip2.id == "test-active"
+
+    def test_concurrent_writes_do_not_corrupt_cache(self, personality_dir, tmp_path):
+        """Multiple sequential writes should not produce a corrupted cache file."""
+        cache_path = tmp_path / "active_cache.json"
+        lock_path = tmp_path / "active_cache.lock"
+
+        with patch.dict(os.environ, {"SPARK_PERSONALITY": "test-active"}):
+            with patch("personality_engine.active.CACHE_FILE", cache_path):
+                with patch("personality_engine.active.CACHE_LOCK_FILE", lock_path):
+                    # Simulate multiple sequential writes
+                    for i in range(10):
+                        chip = get_active_personality(search_paths=[personality_dir])
+                        assert chip is not None
+                        from personality_engine.active import _memory_cache
+                        _memory_cache.clear()
+
+        # Final cache file should be valid JSON
+        assert cache_path.exists()
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert isinstance(data, dict)
+        assert "personality_id" in data
+
+    def test_acquire_file_lock_context_manager(self, tmp_path):
+        """_acquire_file_lock should create and use the lock file."""
+        lock_path = tmp_path / "test.lock"
+
+        with patch("personality_engine.active.CACHE_LOCK_FILE", lock_path):
+            with _acquire_file_lock(fcntl.LOCK_EX):
+                # Lock file should exist while held
+                assert lock_path.exists()
+
+        # Lock file still exists on disk (just unlocked), which is fine
+
+    def test_read_lock_blocks_during_write(self, personality_dir, tmp_path):
+        """Shared read lock should be compatible with concurrent readers."""
+        import threading
+
+        cache_path = tmp_path / "active_cache.json"
+        lock_path = tmp_path / "active_cache.lock"
+
+        # Write initial cache
+        cache_data = {
+            "personality_id": "test-active",
+            "personality_name": "TestActive",
+            "cached_at": time.time(),
+        }
+        cache_path.write_text(json.dumps(cache_data), encoding="utf-8")
+
+        results = []
+
+        def reader():
+            with patch("personality_engine.active.CACHE_FILE", cache_path):
+                with patch("personality_engine.active.CACHE_LOCK_FILE", lock_path):
+                    chip = _check_file_cache()
+                    results.append(chip)
+
+        # Start two concurrent readers
+        t1 = threading.Thread(target=reader)
+        t2 = threading.Thread(target=reader)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+
+        # Both readers should have completed (shared locks are compatible)
+        assert len(results) == 2

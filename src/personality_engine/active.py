@@ -12,6 +12,8 @@ Resolution chain (first match wins):
 Includes file-based caching with 5-minute TTL for fast hook lookups.
 """
 
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -67,6 +69,9 @@ def _is_within_roots(path: Path, roots: list[Path]) -> bool:
             continue
     return False
 
+
+# File lock alongside the cache for cross-process coordination
+CACHE_LOCK_FILE = CACHE_FILE.with_suffix(".lock")
 
 # In-memory cache for same-process reuse
 _memory_cache: dict = {}
@@ -279,17 +284,28 @@ def _check_memory_cache(expected_id: Optional[str] = None) -> Optional[Personali
 
 
 def _check_file_cache(expected_id: Optional[str] = None) -> Optional[PersonalityChip]:
-    """Check file-based cache for cross-process reuse."""
+    """Check file-based cache for cross-process reuse.
+
+    Uses a shared file lock (``LOCK_SH``) so multiple concurrent readers
+    can proceed simultaneously while writers hold an exclusive lock.
+    This prevents reading a partially-written cache entry while another
+    process is atomically replacing the file via ``os.replace``.
+    """
     if not CACHE_FILE.exists():
         return None
 
-    try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return None
+    with _acquire_file_lock(fcntl.LOCK_SH):
+        # Double-check inside the lock — the file may have been removed
+        # by another process between the exists() check and acquiring the lock.
+        if not CACHE_FILE.exists():
+            return None
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
 
-    # Check TTL
+    # Check TTL (outside the lock — this is a fast integer comparison)
     cached_at = data.get("cached_at", 0)
     if time.time() - cached_at > CACHE_TTL_SECONDS:
         return None
@@ -316,33 +332,60 @@ def _check_file_cache(expected_id: Optional[str] = None) -> Optional[Personality
 
 
 def _write_cache(chip: PersonalityChip) -> None:
-    """Write chip info to file cache."""
+    """Write chip info to file cache.
+
+    Holds an exclusive file lock (``LOCK_EX``) during the atomic write so
+    concurrent readers block until the new cache entry is fully in place.
+    """
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         return
 
-    # Find the source path from _raw if available
-    raw = chip._raw
-    data = {
-        "personality_id": chip.id,
-        "personality_name": chip.name,
-        "cached_at": time.time(),
-    }
+    with _acquire_file_lock(fcntl.LOCK_EX):
+        # Find the source path from _raw if available
+        raw = chip._raw
+        data = {
+            "personality_id": chip.id,
+            "personality_name": chip.name,
+            "cached_at": time.time(),
+        }
 
-    # Try to find the original file path for fast reload
-    # Check standard locations
-    for search_dir in [
-        Path.home() / ".spark" / "chips" / "personality",
-        Path(__file__).parent.parent.parent / "personalities",
-    ]:
-        single = search_dir / f"{chip.id}.personality.yaml"
-        if single.exists():
-            data["personality_path"] = str(single)
-            break
-        dir_format = search_dir / chip.id / "personality.yaml"
-        if dir_format.exists():
-            data["personality_path"] = str(search_dir / chip.id)
-            break
+        # Try to find the original file path for fast reload
+        # Check standard locations
+        for search_dir in [
+            Path.home() / ".spark" / "chips" / "personality",
+            Path(__file__).parent.parent.parent / "personalities",
+        ]:
+            single = search_dir / f"{chip.id}.personality.yaml"
+            if single.exists():
+                data["personality_path"] = str(single)
+                break
+            dir_format = search_dir / chip.id / "personality.yaml"
+            if dir_format.exists():
+                data["personality_path"] = str(search_dir / chip.id)
+                break
 
-    atomic_write_json(CACHE_FILE, data, raise_on_error=False)
+        atomic_write_json(CACHE_FILE, data, raise_on_error=False)
+
+
+# ── File Locking Helpers ──
+
+
+@contextlib.contextmanager
+def _acquire_file_lock(lock_type: int):
+    """Acquire a file lock for cache operations.
+
+    Uses a ``.lock`` sidecar file so the lock is independent of the cache
+    data file itself.  Callers should use ``fcntl.LOCK_SH`` for reads
+    (shared / non-blocking for concurrent readers) and ``fcntl.LOCK_EX``
+    for writes (exclusive / blocking).
+    """
+    CACHE_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = CACHE_LOCK_FILE.open("w")
+    try:
+        fcntl.flock(lock_fd, lock_type)
+        yield
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
