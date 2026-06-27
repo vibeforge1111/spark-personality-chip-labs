@@ -15,13 +15,15 @@ Lightweight: ~200 lines, zero external dependencies, no ML inference.
 
 from __future__ import annotations
 
+import fcntl
+import os
+import json
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, read_json_object
 
 
 # ---------------------------------------------------------------------------
@@ -167,26 +169,39 @@ _TRAJECTORY_TTL = 1800  # 30 minutes — reset if gap exceeds this
 
 
 def _load_trajectory() -> list[dict]:
-    """Load the sliding window of recent readings."""
-    data = read_json_object(_TRAJECTORY_FILE)
-    if data is None:
+    """Load the sliding window of recent readings with file locking."""
+    if not _TRAJECTORY_FILE.exists():
         return []
-    entries = data.get("entries", [])
-    if not isinstance(entries, list):
+    try:
+        with open(_TRAJECTORY_FILE, "r", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                data = json.loads(f.read())
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+        entries = data.get("entries", [])
+        # Expire stale entries
+        now = time.time()
+        return [e for e in entries if now - e.get("ts", 0) < _TRAJECTORY_TTL]
+    except (json.JSONDecodeError, OSError):
         return []
-    now = time.time()
-    return [
-        entry for entry in entries
-        if isinstance(entry, dict)
-        and isinstance(entry.get("ts", 0), (int, float))
-        and now - entry.get("ts", 0) < _TRAJECTORY_TTL
-    ]
-
 
 def _save_trajectory(entries: list[dict]) -> None:
-    """Persist the sliding window."""
+    """Persist the sliding window with file locking and atomic write."""
+    _TRAJECTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     trimmed = entries[-_WINDOW_SIZE:]
-    atomic_write_json(_TRAJECTORY_FILE, {"entries": trimmed}, raise_on_error=False)
+    lock_path = _TRAJECTORY_FILE.with_suffix(".lock")
+    try:
+        with open(lock_path, "w") as lock_f:
+            fcntl.flock(lock_f, fcntl.LOCK_EX)
+            try:
+                tmp_path = _TRAJECTORY_FILE.with_suffix(".tmp")
+                tmp_path.write_text(json.dumps({"entries": trimmed}), encoding="utf-8")
+                os.replace(str(tmp_path), str(_TRAJECTORY_FILE))
+            finally:
+                fcntl.flock(lock_f, fcntl.LOCK_UN)
+    except OSError:
+        pass
 
 
 def _compute_trajectory(entries: list[dict], current_score: float) -> str:
