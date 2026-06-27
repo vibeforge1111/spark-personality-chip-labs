@@ -81,7 +81,7 @@ def observe_response(
     # Calculate composite drift score
     if signals:
         drift_score = min(
-            sum(s["severity"] for s in signals) / len(signals) + len(signals) * 0.05,
+            sum(s["severity"] for s in signals) / len(signals) + min(len(signals) * 0.05, 0.5),
             1.0
         )
     else:
