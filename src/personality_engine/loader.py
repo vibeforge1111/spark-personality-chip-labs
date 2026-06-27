@@ -181,7 +181,7 @@ def _load_yaml(path: Path) -> dict:
             "PyYAML is required: pip install pyyaml"
         )
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8-sig") as f:
         data = yaml.safe_load(f)
 
     if not isinstance(data, dict):
