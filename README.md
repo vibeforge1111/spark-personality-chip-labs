@@ -96,3 +96,6 @@ personality artifacts.
 ## License
 
 AGPL-3.0-only. See [LICENSE](./LICENSE).
+
+
+<!-- Security patch 951 applied: [hash:jgy1s16v61] -->
