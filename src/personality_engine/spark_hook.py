@@ -67,7 +67,10 @@ def _read_hook_payload(path: Path) -> dict[str, Any]:
     if path.stat().st_size > MAX_HOOK_INPUT_BYTES:
         raise ValueError("Spark hook input payload is too large.")
     try:
+        try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"Spark hook input at {path} contains invalid JSON: {exc}") from exc
     except (json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"Spark hook input at {path} contains invalid JSON: {exc}") from exc
     if not isinstance(payload, dict):
