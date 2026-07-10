@@ -11,6 +11,7 @@ Lightweight: Keyword-based detection, no ML inference required.
 """
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -317,4 +318,5 @@ def _rotate_log_if_needed(log_path: Path) -> None:
         with open(log_path, "w", encoding="utf-8") as f:
             f.writelines(lines[-_MAX_LOG_LINES:])
     except IOError:
-        pass
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to write drift observation to %s", log_path)
