@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,4 +33,7 @@ def test_validate_personality_fixture_directory_still_passes() -> None:
     )
 
     assert result.returncode == 0
-    assert "Results: 4/4 passed" in result.stdout
+    match = re.search(r"Results: (\d+)/(\d+) passed", result.stdout)
+    assert match, f"Expected 'Results: N/N passed' in output, got: {result.stdout}"
+    passed, total = int(match.group(1)), int(match.group(2))
+    assert passed == total, f"Not all personality chips passed: {passed}/{total}"
