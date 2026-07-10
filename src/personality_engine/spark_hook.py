@@ -101,7 +101,7 @@ def main() -> int:
         if args.hook != "personality":
             raise ValueError(f"Unsupported hook: {args.hook!r}. Supported hooks: 'personality'.")
         result = handle_personality_hook(payload)
-    except Exception as exc:
+    except (ValueError, json.JSONDecodeError, OSError) as exc:
         _write_output(output_path, _error_output(str(exc)))
         return 1
 
