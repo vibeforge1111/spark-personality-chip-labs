@@ -85,6 +85,10 @@ class TestSkipCommand:
     def test_skip_windows_exe(self):
         assert _should_skip_command("Bash", {"command": "git.exe status"}) is True
 
+    @pytest.mark.parametrize("tool_input", [None, ["command", "python main.py"], "python main.py"])
+    def test_skip_malformed_bash_input(self, tool_input):
+        assert _should_skip_command("Bash", tool_input) is True
+
 
 class TestDetectUserState:
 
@@ -169,6 +173,14 @@ class TestPreToolUse:
         })
         assert result == {}
 
+    @pytest.mark.parametrize("tool_input", [None, ["command", "python main.py"]])
+    def test_malformed_tool_input_returns_empty(self, tool_input):
+        result = handle_pre_tool_use({
+            "tool_name": "Bash",
+            "tool_input": tool_input,
+        })
+        assert result == {}
+
     def test_no_state_no_output(self):
         """If no user state detected, PreToolUse returns empty."""
         chip = build_personality({
@@ -217,6 +229,15 @@ class TestPostToolUse:
             "tool_name": "Bash",
             "tool_input": {"command": "python x.py"},
             "tool_output": "ok",
+        })
+        assert result == {}
+
+    @pytest.mark.parametrize("tool_input", [None, ["command", "python main.py"]])
+    def test_malformed_tool_input_returns_empty(self, tool_input):
+        result = handle_post_tool_use({
+            "tool_name": "Bash",
+            "tool_input": tool_input,
+            "tool_output": "This output is intentionally long enough for post hook analysis. " * 3,
         })
         assert result == {}
 
