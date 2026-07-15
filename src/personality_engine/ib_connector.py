@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .prompt_data import bounded_prompt_data
 from .storage import atomic_write_json
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
@@ -140,9 +141,9 @@ def sync_to_intelligence_builder(
 def build_builder_persona_summary(chip) -> str:
     """Build a short Builder-facing persona summary from the active chip."""
     parts: list[str] = []
-    voice_signature = str(getattr(chip, "voice_signature", "") or "").strip()
-    tagline = str(getattr(chip, "tagline", "") or "").strip()
-    archetype = str(getattr(chip, "archetype", "") or "").strip()
+    voice_signature = bounded_prompt_data(getattr(chip, "voice_signature", ""))
+    tagline = bounded_prompt_data(getattr(chip, "tagline", ""))
+    archetype = bounded_prompt_data(getattr(chip, "archetype", ""))
     if voice_signature:
         parts.append(voice_signature)
     if tagline:
@@ -155,7 +156,7 @@ def build_builder_persona_summary(chip) -> str:
 def build_builder_behavioral_rules(chip) -> list[str]:
     """Derive Builder-visible style rules from the personality chip."""
     rules: list[str] = []
-    voice_signature = str(getattr(chip, "voice_signature", "") or "").strip()
+    voice_signature = bounded_prompt_data(getattr(chip, "voice_signature", ""))
     if voice_signature:
         rules.append(f"Sound {voice_signature}.")
 
@@ -166,11 +167,11 @@ def build_builder_behavioral_rules(chip) -> list[str]:
     elif verbosity == "detailed":
         rules.append("Explain the why behind recommendations when more context is useful.")
 
-    formality = str(communication.get("formality") or "").strip()
+    formality = bounded_prompt_data(communication.get("formality"))
     if formality:
         rules.append(f"Keep the register {formality}.")
 
-    explanation_style = str(communication.get("explanation_style") or "").strip()
+    explanation_style = bounded_prompt_data(communication.get("explanation_style"))
     if explanation_style:
         rules.append(f"When explanation is needed, prefer a {explanation_style} explanation style.")
 
@@ -187,7 +188,11 @@ def build_builder_behavioral_rules(chip) -> list[str]:
     elif risk_appetite == "conservative":
         rules.append("Bias toward safer reversible moves when tradeoffs are unclear.")
 
-    anti_patterns = [str(item).strip() for item in list(getattr(chip, "anti_patterns", []) or []) if str(item).strip()]
+    anti_patterns = [
+        bounded_prompt_data(item)
+        for item in list(getattr(chip, "anti_patterns", []) or [])
+        if str(item).strip()
+    ]
     rules.extend(item if item.endswith(".") else f"{item}." for item in anti_patterns[:3])
 
     deduped: list[str] = []

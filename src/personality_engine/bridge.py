@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .prompt_data import bounded_prompt_data
 from .schema import PersonalityChip
 from .storage import atomic_write_json, read_json_object
 
@@ -120,7 +121,7 @@ def build_bridge_payload(
         },
 
         "mission": {
-            "anchor": f"Serve as {chip.name} ({chip.archetype})",
+            "anchor": f"Serve as {bounded_prompt_data(chip.name)} ({bounded_prompt_data(chip.archetype)})",
             "kernel": {
                 "non_harm": True,
                 "service": True,
@@ -138,7 +139,7 @@ def build_bridge_payload(
         "meta": {
             "ttl_seconds": 120,
             "personality_id": chip.id,
-            "personality_name": chip.name,
+            "personality_name": bounded_prompt_data(chip.name),
         },
 
         # ── Personality-specific extensions ──

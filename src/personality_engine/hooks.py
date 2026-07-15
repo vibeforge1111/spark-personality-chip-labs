@@ -66,11 +66,17 @@ def _read_stdin() -> dict[str, Any]:
     Applies a size limit to prevent memory exhaustion from unbounded input.
     """
     try:
-        raw = sys.stdin.read(MAX_STDIN_BYTES)
+        raw = sys.stdin.read(MAX_STDIN_BYTES + 1)
+        if len(raw) > MAX_STDIN_BYTES:
+            sys.stderr.write("[spark-personality] ignored oversized hook input\n")
+            return {}
         if raw.strip():
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            sys.stderr.write("[spark-personality] ignored invalid hook input\n")
     except (json.JSONDecodeError, OSError):
-        pass
+        sys.stderr.write("[spark-personality] ignored invalid hook input\n")
     return {}
 
 
@@ -85,8 +91,10 @@ def _is_disabled() -> bool:
     return os.environ.get(DISABLE_ENV, "").lower() in ("1", "true", "yes")
 
 
-def _should_skip_command(tool_name: str, tool_input: dict[str, Any]) -> bool:
+def _should_skip_command(tool_name: str, tool_input: object) -> bool:
     """Fast pre-filter: return True if this tool action never needs personality."""
+    if not isinstance(tool_input, dict):
+        return True
     if tool_name == "Bash":
         command = tool_input.get("command", "").strip()
         if not command:
