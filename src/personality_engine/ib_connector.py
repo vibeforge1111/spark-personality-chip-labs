@@ -33,7 +33,23 @@ from .prompt_data import bounded_prompt_data
 from .storage import atomic_write_json
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
+IB_STATE_ROOT = IB_STATE_PATH.parent
 IB_STATE_VERSION = 1
+
+
+def _validate_evolver_state_path(raw: str | Path) -> Path:
+    """Resolve a hook-selected state path inside Spark's private state root."""
+    candidate = Path(raw).expanduser().resolve()
+    root = IB_STATE_ROOT.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "evolver_state_path is outside the allowed Spark state directory."
+        ) from exc
+    if candidate == root:
+        raise ValueError("evolver_state_path must name a file inside Spark state.")
+    return candidate
 
 
 def map_chip_to_evolver_traits(chip) -> dict[str, float]:
@@ -217,7 +233,10 @@ def build_builder_personality_import(
     evolver_state_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build the Spark Intelligence Builder personality-hook result payload."""
-    state_path = Path(evolver_state_path) if evolver_state_path else IB_STATE_PATH
+    state_path = (
+        _validate_evolver_state_path(evolver_state_path)
+        if evolver_state_path else IB_STATE_PATH
+    )
     evolver_state = sync_to_intelligence_builder(chip, state_path=state_path)
     base_traits = dict(evolver_state.get("traits") or map_chip_to_evolver_traits(chip))
     return {

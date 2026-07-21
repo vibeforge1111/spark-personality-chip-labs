@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from personality_engine.schema import PersonalityChip
 from personality_engine.ib_connector import (
     build_builder_behavioral_rules,
@@ -13,6 +15,7 @@ from personality_engine.ib_connector import (
     map_chip_to_evolver_traits,
     sync_to_intelligence_builder,
     read_evolver_state,
+    _validate_evolver_state_path,
 )
 
 
@@ -168,19 +171,21 @@ class TestBuildBuilderPersonalityImport:
 
     def test_builds_import_payload_matching_builder_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "personality_evolution_v1.json"
+            root = Path(tmp) / ".spark"
+            path = root / "personality_evolution_v1.json"
             chip = _make_chip(
                 id="forge",
                 name="Forge",
                 voice_signature="direct, energetic, action-biased",
                 tagline="Ship it, learn, ship again.",
             )
-            payload = build_builder_personality_import(
-                chip,
-                human_id="human:telegram:111",
-                agent_id="agent:human:telegram:111",
-                evolver_state_path=path,
-            )
+            with patch("personality_engine.ib_connector.IB_STATE_ROOT", root):
+                payload = build_builder_personality_import(
+                    chip,
+                    human_id="human:telegram:111",
+                    agent_id="agent:human:telegram:111",
+                    evolver_state_path=path,
+                )
 
             assert payload["human_id"] == "human:telegram:111"
             assert payload["agent_id"] == "agent:human:telegram:111"
@@ -189,6 +194,50 @@ class TestBuildBuilderPersonalityImport:
             assert payload["base_traits"] == payload["evolver_state"]["traits"]
             assert payload["behavioral_rules"]
             assert path.exists()
+
+    def test_rejects_hook_selected_path_outside_spark_state(self, tmp_path):
+        root = tmp_path / ".spark"
+        with patch("personality_engine.ib_connector.IB_STATE_ROOT", root):
+            with pytest.raises(ValueError, match="outside the allowed Spark state"):
+                build_builder_personality_import(
+                    _make_chip(), human_id="human", agent_id="agent",
+                    evolver_state_path=tmp_path / "outside.json",
+                )
+
+
+class TestValidateEvolverStatePath:
+    def test_accepts_descendant_of_spark_state_root(self, tmp_path):
+        root = tmp_path / ".spark"
+        with patch("personality_engine.ib_connector.IB_STATE_ROOT", root):
+            assert _validate_evolver_state_path(root / "nested" / "state.json") == (
+                root / "nested" / "state.json"
+            ).resolve()
+
+    def test_rejects_prefix_sibling_and_traversal(self, tmp_path):
+        root = tmp_path / ".spark"
+        with patch("personality_engine.ib_connector.IB_STATE_ROOT", root):
+            for candidate in (
+                tmp_path / ".spark-evil" / "state.json",
+                root / ".." / "outside.json",
+            ):
+                with pytest.raises(ValueError, match="outside the allowed Spark state"):
+                    _validate_evolver_state_path(candidate)
+
+    def test_rejects_symlink_escape(self, tmp_path):
+        root = tmp_path / ".spark"
+        outside = tmp_path / "outside"
+        root.mkdir()
+        outside.mkdir()
+        (root / "escape").symlink_to(outside, target_is_directory=True)
+        with patch("personality_engine.ib_connector.IB_STATE_ROOT", root):
+            with pytest.raises(ValueError, match="outside the allowed Spark state"):
+                _validate_evolver_state_path(root / "escape" / "state.json")
+
+    def test_rejects_root_directory_itself(self, tmp_path):
+        root = tmp_path / ".spark"
+        with patch("personality_engine.ib_connector.IB_STATE_ROOT", root):
+            with pytest.raises(ValueError, match="must name a file"):
+                _validate_evolver_state_path(root)
 
 
 class TestReadEvolverState:

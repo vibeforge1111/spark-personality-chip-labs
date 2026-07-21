@@ -37,8 +37,12 @@ def _make_chip(**overrides) -> PersonalityChip:
 
 class TestHandlePersonalityHook:
     def test_returns_builder_contract_for_active_chip(self, tmp_path):
-        evolver_path = tmp_path / "personality_evolution_v1.json"
-        with patch("personality_engine.spark_hook.get_active_personality", return_value=_make_chip()):
+        spark_root = tmp_path / ".spark"
+        evolver_path = spark_root / "personality_evolution_v1.json"
+        with (
+            patch("personality_engine.spark_hook.get_active_personality", return_value=_make_chip()),
+            patch("personality_engine.ib_connector.IB_STATE_ROOT", spark_root),
+        ):
             payload = handle_personality_hook(
                 {
                     "human_id": "human:telegram:111",
