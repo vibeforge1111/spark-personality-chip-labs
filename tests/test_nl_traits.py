@@ -209,6 +209,15 @@ class TestAssertivenessPatterns:
         deltas = extract_trait_deltas("calm down")
         assert deltas["assertiveness"] < 0
 
+    def test_calm_description_is_not_mistaken_for_style_intent(self):
+        assert extract_trait_deltas("the lake is calm today") == {}
+
+    def test_explicit_relax_request_is_style_intent(self):
+        deltas = extract_trait_deltas("can you relax")
+
+        assert deltas["assertiveness"] < 0
+        assert deltas["warmth"] > 0
+
     def test_just_tell_me(self):
         deltas = extract_trait_deltas("just tell me the answer")
         assert deltas["directness"] > 0

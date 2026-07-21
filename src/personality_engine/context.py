@@ -12,6 +12,8 @@ Three modes matching Spark Intelligence Builder's context injector:
 Output is plain markdown — no special tokens, no framework coupling.
 """
 
+import warnings
+
 from .prompt_data import bounded_prompt_data, bounded_prompt_list
 from .schema import PersonalityChip
 
@@ -42,6 +44,13 @@ def build_personality_context(
     elif style == "adaptive":
         return _build_adaptive(chip, user_state)
     else:
+        safe_style = bounded_prompt_data(style)
+        warnings.warn(
+            f"Unknown context style {safe_style!r}; using 'concise'. "
+            "Valid styles: concise, detailed, guardrails, adaptive",
+            UserWarning,
+            stacklevel=2,
+        )
         return _build_concise(chip, user_state)
 
 
@@ -208,9 +217,7 @@ def _build_adaptive(chip: PersonalityChip, user_state: str = None) -> str:
         lines.append(f"Detected state: **{bounded_prompt_data(user_state)}**")
         lines.append(instruction)
     else:
-        lines.append(f"No specific adaptation for state '{bounded_prompt_data(user_state)}' - using defaults.")
-        if chip.voice_signature:
-            lines.append(f"Voice: {bounded_prompt_data(chip.voice_signature)}")
+        return ""
 
     return "\n".join(lines)
 
@@ -272,9 +279,10 @@ def _get_adaptive_instruction(chip: PersonalityChip, user_state: str) -> str | N
     behavior = chip.adaptive.get(key) or chip.adaptive.get(user_state)
 
     if not behavior:
-        # Try partial match
+        # Try partial match, normalizing the needle once for the scan.
+        user_state_lower = user_state.lower()
         for akey, abehavior in chip.adaptive.items():
-            if user_state.lower() in akey.lower():
+            if user_state_lower in akey.lower():
                 behavior = abehavior
                 break
 
