@@ -249,3 +249,17 @@ def test_list_overlay_replaces_base_instead_of_duplicating_it(tmp_path):
     )
     (tmp_path / "strengths.yaml").write_text("strengths:\n  - trait: new\n", encoding="utf-8")
     assert [item["trait"] for item in load_personality(tmp_path).strengths] == ["new"]
+
+
+def test_malformed_mapping_overlay_preserves_core_section(tmp_path):
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    (tmp_path / "personality.yaml").write_text(
+        "identity:\n  id: shape-owner\n  name: Shape Owner\ntraits:\n  openness: 0.7\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "traits.yaml").write_text("traits:\n  - malformed\n", encoding="utf-8")
+    chip = load_personality(tmp_path)
+    assert chip.openness == 0.7
+    assert chip._raw["traits"] == {"openness": 0.7}
+    assert chip._raw["_overlay_load_warnings"] == ["traits.yaml: TypeError"]

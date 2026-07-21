@@ -191,7 +191,9 @@ def _load_directory(directory: Path) -> dict:
                             else:
                                 spec[section_key] = candidate
                         else:
-                            spec[section_key] = merge_data
+                            spec.setdefault("_overlay_load_warnings", []).append(
+                                _overlay_warning(filename, TypeError())
+                            )
 
     # Custom overlay — merges at root level for any extra sections
     custom_path = directory / "custom.yaml"
