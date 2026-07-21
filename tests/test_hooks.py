@@ -207,13 +207,17 @@ class TestPreToolUse:
                 },
             },
         })
-        with patch("personality_engine.active.get_active_personality", return_value=chip):
+        with (
+            patch("personality_engine.active.get_active_personality", return_value=chip),
+            patch("personality_engine.bridge.refresh_bridge_emotional_state") as refresh_bridge,
+        ):
             result = handle_pre_tool_use({
                 "tool_name": "Bash",
                 "tool_input": {"command": "# still failing tried everything"},
             })
         assert "hookSpecificOutput" in result
         assert "frustrated" in result["hookSpecificOutput"]["additionalContext"]
+        refresh_bridge.assert_called_once()
 
     def test_resolves_project_personality_for_pre_tool_hook(self):
         chip = build_personality({"identity": {"id": "project-pre", "name": "ProjectPre"}})

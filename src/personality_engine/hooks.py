@@ -249,8 +249,13 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
 
     # Update emotional state based on room reading
     try:
-        from .emotional_state import update_emotional_state
-        update_emotional_state(chip, user_state=user_state, intensity=reading.confidence)
+        from .bridge import refresh_bridge_emotional_state
+        refresh_bridge_emotional_state(
+            chip,
+            user_state=user_state,
+            intensity=reading.confidence,
+            session_id=f"claude-code-{os.getpid()}",
+        )
     except (ImportError, OSError, ValueError) as exc:
         _write_warning("emotional update failed", exc)
 
