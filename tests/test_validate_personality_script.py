@@ -22,6 +22,19 @@ def test_validate_personality_empty_directory_fails(tmp_path: Path) -> None:
     assert "Expected *.personality.yaml files" in result.stdout
 
 
+def test_validate_personality_help_exits_successfully() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/validate_personality.py", "--help"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Usage:" in result.stdout
+
+
 def test_validate_personality_fixture_directory_still_passes() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/validate_personality.py", "personalities"],

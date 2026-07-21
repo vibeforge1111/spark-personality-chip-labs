@@ -11,9 +11,12 @@ Usage:
     python scripts/personality_cli.py bridge                # Show bridge payload
 """
 
+import difflib
 import sys
 import json
 from pathlib import Path
+
+_KNOWN_COMMANDS = ("list", "activate", "deactivate", "status", "bridge")
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -37,7 +40,8 @@ def cmd_list():
         print("Place .personality.yaml files in personalities/ or ~/.spark/chips/personality/")
         return
 
-    print(f"Found {len(chips)} personality chip(s):\n")
+    noun = "chip" if len(chips) == 1 else "chips"
+    print(f"Found {len(chips)} personality {noun}:\n")
     for chip in chips:
         print(f"  {chip.id}")
         print(f"    Name:      {chip.name}")
@@ -61,9 +65,21 @@ def cmd_activate(personality_id: str):
 
     if not match:
         print(f"Personality '{personality_id}' not found.")
-        print("Available personalities:")
-        for chip in chips:
-            print(f"  - {chip.id}")
+        if chips:
+            print("Available personalities:")
+            for chip in chips:
+                print(f"  - {chip.id}")
+            suggestion = difflib.get_close_matches(
+                personality_id, [chip.id for chip in chips], n=1, cutoff=0.6
+            )
+            if suggestion:
+                print(f"Did you mean {suggestion[0]!r}?")
+        else:
+            print("No personality chips are installed yet.")
+            print(
+                "Place .personality.yaml files in personalities/ or "
+                "~/.spark/chips/personality/, then run 'list' to confirm."
+            )
         sys.exit(1)
 
     set_active_personality(personality_id)
@@ -138,7 +154,10 @@ def main():
 
     command = sys.argv[1].strip().lower()
 
-    if command == "list":
+    if command in ("-h", "--help", "help"):
+        print(__doc__)
+        sys.exit(0)
+    elif command == "list":
         cmd_list()
     elif command == "activate":
         if len(sys.argv) < 3:
@@ -153,7 +172,12 @@ def main():
         cmd_bridge()
     else:
         print(f"Unknown command: {command}")
-        print("Available: list, activate, deactivate, status, bridge")
+        print("Available: " + ", ".join(_KNOWN_COMMANDS))
+        suggestion = difflib.get_close_matches(
+            command, _KNOWN_COMMANDS, n=1, cutoff=0.6
+        )
+        if suggestion:
+            print(f"Did you mean {suggestion[0]!r}?")
         sys.exit(1)
 
 

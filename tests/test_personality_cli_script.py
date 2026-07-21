@@ -3,10 +3,24 @@ from __future__ import annotations
 import subprocess
 import sys
 import os
+import importlib.util
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_cli_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "personality_cli_under_test", ROOT / "scripts" / "personality_cli.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -45,6 +59,53 @@ def test_personality_cli_truly_unknown_command_still_errors() -> None:
 
     assert result.returncode == 1
     assert "Unknown command: frobnicate" in result.stdout
+    assert "Did you mean" not in result.stdout
+
+
+def test_personality_cli_command_typo_suggests_closest() -> None:
+    result = _run_cli("activat")
+
+    assert result.returncode == 1
+    assert "Did you mean 'activate'?" in result.stdout
+
+
+def test_personality_cli_help_exits_successfully() -> None:
+    result = _run_cli("--help")
+
+    assert result.returncode == 0
+    assert "Usage:" in result.stdout
+
+
+def test_personality_cli_activate_chip_typo_suggests_closest() -> None:
+    result = _run_cli("activate", "artemiss")
+
+    assert result.returncode == 1
+    assert "Did you mean 'artemis'?" in result.stdout
+
+
+def test_personality_cli_list_uses_singular_chip_label(monkeypatch, capsys) -> None:
+    cli = _load_cli_module()
+    chip = SimpleNamespace(
+        id="one", name="One", archetype="sage", voice_signature="", tagline=""
+    )
+    monkeypatch.setattr(cli, "load_all_personalities", lambda: [chip])
+
+    cli.cmd_list()
+
+    assert "Found 1 personality chip:" in capsys.readouterr().out
+
+
+def test_personality_cli_activate_names_empty_install_state(monkeypatch, capsys) -> None:
+    cli = _load_cli_module()
+    monkeypatch.setattr(cli, "load_all_personalities", lambda: [])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.cmd_activate("missing")
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "No personality chips are installed yet." in output
+    assert "Available personalities:" not in output
 
 
 def test_personality_cli_deactivate_clears_active_and_bridge_files(tmp_path) -> None:
