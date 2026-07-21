@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,13 @@ _SKIP_COMMANDS = frozenset({
 # ---------------------------------------------------------------------------
 
 MAX_STDIN_BYTES = 1_000_000  # 1 MB — Claude Code hooks send small JSON payloads
+_ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
+
+
+def _write_warning(category: str, exc: BaseException | None = None) -> None:
+    """Write bounded diagnostics without reflecting paths, payloads, or messages."""
+    suffix = f": {type(exc).__name__}" if exc is not None else ""
+    sys.stderr.write(f"[spark-personality] {category}{suffix}\n")
 
 
 def _read_stdin() -> dict[str, Any]:
@@ -68,15 +76,17 @@ def _read_stdin() -> dict[str, Any]:
     try:
         raw = sys.stdin.read(MAX_STDIN_BYTES + 1)
         if len(raw) > MAX_STDIN_BYTES:
-            sys.stderr.write("[spark-personality] ignored oversized hook input\n")
+            _write_warning("ignored oversized hook input")
             return {}
         if raw.strip():
             parsed = json.loads(raw)
             if isinstance(parsed, dict):
                 return parsed
-            sys.stderr.write("[spark-personality] ignored invalid hook input\n")
-    except (json.JSONDecodeError, OSError):
-        sys.stderr.write("[spark-personality] ignored invalid hook input\n")
+            _write_warning("ignored invalid hook input")
+    except json.JSONDecodeError:
+        _write_warning("ignored invalid hook input")
+    except (OSError, UnicodeError) as exc:
+        _write_warning("ignored invalid hook input", exc)
     return {}
 
 
@@ -96,31 +106,35 @@ def _should_skip_command(tool_name: str, tool_input: object) -> bool:
     if not isinstance(tool_input, dict):
         return True
     if tool_name == "Bash":
-        command = tool_input.get("command", "").strip()
+        raw_command = tool_input.get("command", "")
+        if not isinstance(raw_command, str):
+            return True
+        command = raw_command.strip()
         if not command:
             return True
-        # Strip env var assignments (e.g. FOO=bar BAZ=1 cmd ...)
-        # and 'env' prefix to find the real command
-        tokens = command.split()
-        while tokens:
-            token = tokens[0]
-            if "=" in token and not token.startswith("="):
-                tokens = tokens[1:]  # skip env var assignment
-            elif token == "env":
-                tokens = tokens[1:]  # skip 'env' prefix
-            else:
+        meaningful_segment = False
+        # Be conservative for chains: skip only when every segment is a known
+        # low-context command. A single real-work segment keeps personality on.
+        for segment in re.split(r"\s*(?:&&|\|\||[;|\n])\s*", command):
+            tokens = segment.split()
+            while tokens:
+                token = tokens[0]
+                if token == "env" or _ENV_ASSIGNMENT.fullmatch(token):
+                    tokens = tokens[1:]
+                    continue
                 break
-        if not tokens:
-            return True
-        first_token = tokens[0]
-        # Strip quotes
-        first_token = first_token.strip("'\"")
-        base = first_token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        for suffix in (".exe", ".cmd", ".bat", ".ps1"):
-            if base.lower().endswith(suffix):
-                base = base[: -len(suffix)]
-                break
-        if base.lower() in _SKIP_COMMANDS:
+            if not tokens:
+                continue
+            meaningful_segment = True
+            first_token = tokens[0].strip("'\"")
+            base = first_token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            for suffix in (".exe", ".cmd", ".bat", ".ps1"):
+                if base.lower().endswith(suffix):
+                    base = base[: -len(suffix)]
+                    break
+            if base.lower() not in _SKIP_COMMANDS:
+                return False
+        if meaningful_segment:
             return True
     return False
 
@@ -145,7 +159,8 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
         from .active import get_active_personality
         from .context import build_personality_context
         from .bridge import write_bridge
-    except ImportError:
+    except ImportError as exc:
+        _write_warning("session dependencies unavailable", exc)
         return {}
 
     cwd = input_data.get("cwd", "")
@@ -158,22 +173,22 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     # Write the consciousness bridge for Spark Consciousness to read
     try:
         write_bridge(chip, session_id=session_id)
-    except (ImportError, OSError) as exc:
-        sys.stderr.write(f"bridge write failed: {exc}\n")  # non-blocking
+    except (ImportError, OSError, ValueError) as exc:
+        _write_warning("bridge write failed", exc)
 
     # Sync personality traits to Intelligence Builder's PersonalityEvolver
     try:
         from .ib_connector import sync_to_intelligence_builder
         sync_to_intelligence_builder(chip)
-    except (ImportError, OSError) as exc:
-        sys.stderr.write(f"IB sync failed: {exc}\n")  # non-blocking
+    except (ImportError, OSError, ValueError) as exc:
+        _write_warning("IB sync failed", exc)
 
     # Reset emotional state for fresh session
     try:
         from .emotional_state import reset_emotional_state
         reset_emotional_state()
     except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"emotional reset failed: {exc}\n")
+        _write_warning("emotional reset failed", exc)
 
     # Build personality context for the agent
     concise = build_personality_context(chip, style="concise")
@@ -217,7 +232,8 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
         from .active import get_active_personality
         from .context import build_personality_context
         from .room_reader import read_room_from_hook_input
-    except ImportError:
+    except ImportError as exc:
+        _write_warning("pre-tool dependencies unavailable", exc)
         return {}
 
     chip = get_active_personality(project_dir=input_data.get("cwd", ""))
@@ -236,7 +252,7 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
         from .emotional_state import update_emotional_state
         update_emotional_state(chip, user_state=user_state, intensity=reading.confidence)
     except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"emotional update failed: {exc}\n")
+        _write_warning("emotional update failed", exc)
 
     adaptive = build_personality_context(chip, style="adaptive", user_state=user_state)
     if not adaptive:
@@ -285,33 +301,24 @@ def handle_post_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
     try:
         from .active import get_active_personality
         from .observer import observe_response
-    except ImportError:
+    except ImportError as exc:
+        _write_warning("post-tool dependencies unavailable", exc)
         return {}
 
     chip = get_active_personality(project_dir=input_data.get("cwd", ""))
     if not chip:
         return {}
 
-    # Read the room from tool output (e.g., error messages indicate frustration context)
-    try:
-        from .room_reader import read_room
-        from .emotional_state import update_emotional_state
-        reading = read_room(tool_output[:1000])
-        if reading.primary_state:
-            update_emotional_state(
-                chip,
-                user_state=reading.primary_state,
-                intensity=reading.confidence * 0.5,  # Dampen — output signals are indirect
-            )
-    except (ImportError, OSError, ValueError) as exc:
-        sys.stderr.write(f"room read failed: {exc}\n")
-
     session_id = f"claude-code-{os.getpid()}"
-    report = observe_response(
-        chip,
-        tool_output[:2000],  # Cap analysis length
-        session_id=session_id,
-    )
+    try:
+        report = observe_response(
+            chip,
+            tool_output[:2000],  # Cap analysis length
+            session_id=session_id,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        _write_warning("drift observation failed", exc)
+        return {}
 
     # Only surface to agent if meaningful drift detected
     if report["drift_score"] >= 0.3:
