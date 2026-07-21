@@ -61,7 +61,10 @@ def load_personality(path: str | Path) -> PersonalityChip:
             + "\n".join(f"  - {e}" for e in errors)
         )
 
-    return build_personality(spec)
+    chip = build_personality(spec)
+    # Registry reloads must not depend on the process working directory.
+    chip.source_path = str(path.resolve())
+    return chip
 
 
 def load_all_personalities(

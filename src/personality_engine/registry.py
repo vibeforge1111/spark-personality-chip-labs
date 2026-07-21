@@ -111,9 +111,9 @@ class PersonalityRegistry:
         """Load registry state from disk.
 
         Re-hydrates _installed from the persisted ``installed`` array that
-        _save_state writes, so assignments survive a process restart without
-        a filesystem rescan. Each installed entry stores only id/name/archetype,
-        which is enough to satisfy get_personality() lookups.
+        _save_state writes. Chips loaded from disk retain an absolute source
+        path so their complete behavior can be restored without a broad scan;
+        metadata remains a safe fallback for missing or legacy sources.
         """
         state = read_json_object(self._path)
         if state is None:
@@ -131,13 +131,30 @@ class PersonalityRegistry:
                 chip_id = entry.get("id")
                 if not isinstance(chip_id, str) or not chip_id:
                     continue
-                name = entry.get("name")
-                archetype = entry.get("archetype")
-                self._installed[chip_id] = PersonalityChip(
-                    id=chip_id,
-                    name=name if isinstance(name, str) and name else chip_id,
-                    archetype=archetype if isinstance(archetype, str) and archetype else "builder",
-                )
+                restored = self._restore_installed_chip(chip_id, entry)
+                self._installed[chip_id] = restored
+
+    @staticmethod
+    def _restore_installed_chip(chip_id: str, entry: dict) -> PersonalityChip:
+        """Restore a complete chip when its exact source remains trustworthy."""
+        source_path = entry.get("source_path")
+        if isinstance(source_path, str) and source_path:
+            source = Path(source_path)
+            if source.is_absolute():
+                try:
+                    loaded = load_personality(source)
+                except (OSError, ValueError, RecursionError):
+                    loaded = None
+                if loaded is not None and loaded.id == chip_id:
+                    return loaded
+
+        name = entry.get("name")
+        archetype = entry.get("archetype")
+        return PersonalityChip(
+            id=chip_id,
+            name=name if isinstance(name, str) and name else chip_id,
+            archetype=archetype if isinstance(archetype, str) and archetype else "builder",
+        )
 
     def _save_state(self) -> None:
         """Persist registry state to disk."""
@@ -145,7 +162,12 @@ class PersonalityRegistry:
             "active": self._active,
             "default": self._default,
             "installed": [
-                {"id": chip.id, "name": chip.name, "archetype": chip.archetype}
+                {
+                    "id": chip.id,
+                    "name": chip.name,
+                    "archetype": chip.archetype,
+                    **({"source_path": chip.source_path} if chip.source_path else {}),
+                }
                 for chip in self._installed.values()
             ],
         }

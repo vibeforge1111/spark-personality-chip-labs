@@ -93,6 +93,9 @@ class PersonalityChip:
         "safety", "user_wellbeing", "task_completion", "personality_expression"
     ])
 
+    # ── Local source provenance (set by loader, persisted by registry) ──
+    source_path: str = ""
+
     # ── Raw spec for custom fields ──
     _raw: dict = field(default_factory=dict, repr=False)
 
