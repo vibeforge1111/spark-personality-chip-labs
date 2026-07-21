@@ -225,21 +225,29 @@ def validate_personality(spec: dict) -> list[str]:
         if not isinstance(prefs, dict):
             errors.append("preferences must be a dict")
         else:
-            _validate_enum_field(prefs.get("communication", {}), "verbosity",
+            communication = prefs.get("communication", {})
+            if not isinstance(communication, dict):
+                errors.append("preferences.communication must be a dict")
+                communication = {}
+            decision_making = prefs.get("decision_making", {})
+            if not isinstance(decision_making, dict):
+                errors.append("preferences.decision_making must be a dict")
+                decision_making = {}
+            _validate_enum_field(communication, "verbosity",
                                 VALID_VERBOSITY, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "formality",
+            _validate_enum_field(communication, "formality",
                                 VALID_FORMALITY, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "explanation_style",
+            _validate_enum_field(communication, "explanation_style",
                                 VALID_EXPLANATION_STYLES, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "code_comments",
+            _validate_enum_field(communication, "code_comments",
                                 VALID_CODE_COMMENTS, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("communication", {}), "humor_frequency",
+            _validate_enum_field(communication, "humor_frequency",
                                 VALID_HUMOR_FREQUENCY, errors, "preferences.communication")
-            _validate_enum_field(prefs.get("decision_making", {}), "risk_appetite",
+            _validate_enum_field(decision_making, "risk_appetite",
                                 VALID_RISK_APPETITE, errors, "preferences.decision_making")
-            _validate_enum_field(prefs.get("decision_making", {}), "consensus_need",
+            _validate_enum_field(decision_making, "consensus_need",
                                 VALID_CONSENSUS_NEED, errors, "preferences.decision_making")
-            _validate_enum_field(prefs.get("decision_making", {}), "reversibility_weight",
+            _validate_enum_field(decision_making, "reversibility_weight",
                                 VALID_REVERSIBILITY_WEIGHT, errors, "preferences.decision_making")
 
     # ── Anti-patterns ──
@@ -327,6 +335,14 @@ def build_personality(spec: dict) -> PersonalityChip:
     Extracts structured fields, passes through custom fields in _raw.
     """
     identity = spec.get("identity", {})
+    if not isinstance(identity, dict):
+        raise ValueError("Personality chip identity must be a mapping")
+    chip_id = identity.get("id")
+    chip_name = identity.get("name")
+    if not isinstance(chip_id, str) or not chip_id.strip():
+        raise ValueError("Personality chip identity.id is required")
+    if not isinstance(chip_name, str) or not chip_name.strip():
+        raise ValueError("Personality chip identity.name is required")
     traits = spec.get("traits", {})
     ep = spec.get("emotional_profile", {})
     prefs = spec.get("preferences", {})
@@ -334,8 +350,8 @@ def build_personality(spec: dict) -> PersonalityChip:
     safety = spec.get("safety", {})
 
     return PersonalityChip(
-        id=identity["id"],
-        name=identity["name"],
+        id=chip_id,
+        name=chip_name,
         archetype=identity.get("archetype", "builder"),
         voice_signature=identity.get("voice_signature", ""),
         tagline=identity.get("tagline", ""),
