@@ -186,7 +186,7 @@ def handle_session_start(input_data: dict[str, Any]) -> dict[str, Any]:
     # Reset emotional state for fresh session
     try:
         from .emotional_state import reset_emotional_state
-        reset_emotional_state()
+        reset_emotional_state(personality_id=chip.id)
     except (ImportError, OSError, ValueError) as exc:
         _write_warning("emotional reset failed", exc)
 
@@ -241,7 +241,7 @@ def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     # Multi-signal room reading (replaces old _detect_user_state)
-    reading = read_room_from_hook_input(tool_input)
+    reading = read_room_from_hook_input(tool_input, personality_id=chip.id)
     if not reading.primary_state or reading.confidence < 0.25:
         return {}  # No confident state detected, skip injection
 

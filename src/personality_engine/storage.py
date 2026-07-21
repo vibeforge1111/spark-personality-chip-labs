@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import re
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+
+def state_namespace_key(personality_id: object) -> str:
+    """Return a bounded, collision-resistant filename key for local state."""
+    raw = personality_id if isinstance(personality_id, str) and personality_id else "default"
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("._-").lower()
+    slug = (slug or "personality")[:40]
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"{slug}-{digest}"
 
 
 @contextmanager

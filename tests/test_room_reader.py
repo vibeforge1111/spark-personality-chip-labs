@@ -216,11 +216,23 @@ class TestTrajectory:
         trajectory_file = tmp_path / "room_trajectory.json"
         with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
             with patch("personality_engine.room_reader.exclusive_file_lock", recording_lock):
-                with patch("personality_engine.room_reader._load_trajectory", side_effect=lambda: events.append(("load", trajectory_file)) or []):
-                    with patch("personality_engine.room_reader._save_trajectory", side_effect=lambda rows: events.append(("save", len(rows)))):
+                with patch("personality_engine.room_reader._load_trajectory", side_effect=lambda personality_id: events.append(("load", personality_id)) or []):
+                    with patch("personality_engine.room_reader._save_trajectory", side_effect=lambda rows, personality_id: events.append(("save", personality_id))):
                         read_room("this is broken and still failing", persist_trajectory=True)
 
         assert [event[0] for event in events] == ["lock", "load", "save", "unlock"]
+
+    def test_personality_trajectories_are_isolated_without_filename_collisions(self, tmp_path):
+        with patch("personality_engine.room_reader._TRAJECTORY_DIR", tmp_path):
+            read_room("this is amazing and awesome", personality_id="first/personality")
+            read_room("this is broken and still failing", personality_id="first_personality")
+
+            first = _load_trajectory("first/personality")
+            second = _load_trajectory("first_personality")
+
+        assert first[0]["state"] == "excited"
+        assert second[0]["state"] == "frustrated"
+        assert len(list(tmp_path.glob("room_trajectory_*.json"))) == 2
 
     def test_malformed_scores_do_not_crash_or_create_false_volatility(self):
         entries = [

@@ -277,8 +277,23 @@ class TestSaveStateCleanup:
         state_file = tmp_path / "emotional_state.json"
         with patch("personality_engine.emotional_state._STATE_FILE", state_file):
             with patch("personality_engine.emotional_state.exclusive_file_lock", recording_lock):
-                with patch("personality_engine.emotional_state._load_state", side_effect=lambda: events.append(("load", state_file)) or (PADVector(), 0.0)):
-                    with patch("personality_engine.emotional_state._save_state", side_effect=lambda pad: events.append(("save", pad))):
+                with patch("personality_engine.emotional_state._load_state", side_effect=lambda personality_id: events.append(("load", personality_id)) or (PADVector(), 0.0)):
+                    with patch("personality_engine.emotional_state._save_state", side_effect=lambda pad, personality_id: events.append(("save", personality_id))):
                         update_emotional_state(_make_chip(), user_state="curious", persist=True)
 
         assert [event[0] for event in events] == ["lock", "load", "save", "unlock"]
+
+    def test_personality_state_is_isolated(self, tmp_path):
+        with patch("personality_engine.emotional_state._STATE_DIR", tmp_path):
+            first = _make_chip()
+            first.id = "first/personality"
+            second = _make_chip()
+            second.id = "first_personality"
+            update_emotional_state(first, user_state="excited", persist=True)
+            update_emotional_state(second, user_state="frustrated", persist=True)
+
+            first_pad, _ = _load_state(first.id)
+            second_pad, _ = _load_state(second.id)
+
+        assert first_pad != second_pad
+        assert len(list(tmp_path.glob("emotional_state_*.json"))) == 2

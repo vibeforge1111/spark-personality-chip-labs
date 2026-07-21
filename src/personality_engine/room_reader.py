@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, exclusive_file_lock, read_json_object
+from .storage import atomic_write_json, exclusive_file_lock, read_json_object, state_namespace_key
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +167,21 @@ class RoomReading:
 # ---------------------------------------------------------------------------
 
 _TRAJECTORY_FILE = Path.home() / ".cache" / "personality-chips" / "room_trajectory.json"
+_TRAJECTORY_DIR = _TRAJECTORY_FILE.parent
 _WINDOW_SIZE = 8  # Track last N interactions
 _TRAJECTORY_TTL = 1800  # 30 minutes — reset if gap exceeds this
 
 
-def _load_trajectory() -> list[dict]:
+def _get_trajectory_path(personality_id: str = "default") -> Path:
+    """Resolve isolated trajectory state for a personality chip."""
+    if personality_id == "default":
+        return _TRAJECTORY_FILE
+    return _TRAJECTORY_DIR / f"room_trajectory_{state_namespace_key(personality_id)}.json"
+
+
+def _load_trajectory(personality_id: str = "default") -> list[dict]:
     """Load the sliding window of recent readings."""
-    data = read_json_object(_TRAJECTORY_FILE)
+    data = read_json_object(_get_trajectory_path(personality_id))
     if data is None:
         return []
     entries = data.get("entries", [])
@@ -188,10 +196,10 @@ def _load_trajectory() -> list[dict]:
     ]
 
 
-def _save_trajectory(entries: list[dict]) -> None:
+def _save_trajectory(entries: list[dict], personality_id: str = "default") -> None:
     """Persist the sliding window."""
     trimmed = entries[-_WINDOW_SIZE:]
-    atomic_write_json(_TRAJECTORY_FILE, {"entries": trimmed}, raise_on_error=False)
+    atomic_write_json(_get_trajectory_path(personality_id), {"entries": trimmed}, raise_on_error=False)
 
 
 def _compute_trajectory(entries: list[dict], current_score: float) -> str:
@@ -241,7 +249,11 @@ def _validated_score(value: object) -> Optional[float]:
 # Core API
 # ---------------------------------------------------------------------------
 
-def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
+def read_room(
+    text: str,
+    persist_trajectory: bool = True,
+    personality_id: str = "default",
+) -> RoomReading:
     """Read the emotional room from text input.
 
     Analyzes text across three signal layers (keywords, syntax, discourse),
@@ -310,15 +322,16 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
 
     # Trajectory tracking
     if persist_trajectory:
-        with exclusive_file_lock(_TRAJECTORY_FILE):
-            trajectory_entries = _load_trajectory()
+        trajectory_file = _get_trajectory_path(personality_id)
+        with exclusive_file_lock(trajectory_file):
+            trajectory_entries = _load_trajectory(personality_id)
             trajectory = _compute_trajectory(trajectory_entries, confidence)
             trajectory_entries.append({
                 "ts": time.time(),
                 "state": primary,
                 "score": round(confidence, 3),
             })
-            _save_trajectory(trajectory_entries)
+            _save_trajectory(trajectory_entries, personality_id)
     else:
         trajectory = _compute_trajectory([], confidence)
 
@@ -331,7 +344,10 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
     )
 
 
-def read_room_from_hook_input(tool_input: dict) -> RoomReading:
+def read_room_from_hook_input(
+    tool_input: dict,
+    personality_id: str = "default",
+) -> RoomReading:
     """Read the room from Claude Code hook tool_input dict.
 
     Extracts text from command, description, old_string, new_string,
@@ -351,12 +367,15 @@ def read_room_from_hook_input(tool_input: dict) -> RoomReading:
         if basename:
             text_parts.append(basename)
 
-    return read_room(" ".join(text_parts)) if text_parts else RoomReading()
+    return (
+        read_room(" ".join(text_parts), personality_id=personality_id)
+        if text_parts else RoomReading()
+    )
 
 
-def get_trajectory_summary() -> dict:
+def get_trajectory_summary(personality_id: str = "default") -> dict:
     """Get a summary of recent emotional trajectory for context injection."""
-    entries = _load_trajectory()
+    entries = _load_trajectory(personality_id)
     if not entries:
         return {"trajectory": "stable", "recent_states": [], "interaction_count": 0}
 
