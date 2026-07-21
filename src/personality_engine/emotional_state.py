@@ -22,6 +22,7 @@ Lightweight: ~150 lines, pure math, no external APIs.
 
 from __future__ import annotations
 
+import math
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -56,13 +57,14 @@ class PADVector:
 
         def _safe_float(val: object, default: float = 0.0) -> float:
             """Coerce to float, returning default for non-numeric values."""
-            if isinstance(val, (int, float)):
-                return float(val)
-            if isinstance(val, str):
+            if isinstance(val, bool):
+                return default
+            if isinstance(val, (int, float, str)):
                 try:
-                    return float(val)
-                except ValueError:
+                    converted = float(val)
+                except (TypeError, ValueError, OverflowError):
                     return default
+                return converted if math.isfinite(converted) else default
             return default
 
         return cls(
@@ -126,6 +128,7 @@ _PAD_TO_MOOD = {
 
 _STATE_FILE = Path.home() / ".cache" / "personality-chips" / "emotional_state.json"
 _DECAY_RATE = 0.15       # Fraction to decay per update toward baseline
+_DECAY_INTERVAL = 10.0   # Seconds represented by one reference decay step
 _STATE_TTL = 3600        # 1 hour — reset if session gap exceeds this
 
 
@@ -139,7 +142,11 @@ def _load_state() -> tuple[PADVector, float]:
             return PADVector(), 0.0
         pad = PADVector.from_dict(data.get("pad", {}))
         ts = data.get("updated_at", 0.0)
-        if not isinstance(ts, (int, float)):
+        if (
+            not isinstance(ts, (int, float))
+            or isinstance(ts, bool)
+            or not math.isfinite(ts)
+        ):
             return PADVector(), 0.0
         if time.time() - ts > _STATE_TTL:
             return PADVector(), 0.0  # Too stale, reset
@@ -226,13 +233,17 @@ def update_emotional_state(
     baseline = get_baseline_pad(chip)
     transaction = exclusive_file_lock(_STATE_FILE) if persist else nullcontext()
     with transaction:
-        current, _ = _load_state()
+        current, updated_at = _load_state()
 
-        # Decay toward baseline
+        # Decay toward baseline in proportion to elapsed time. A fresh state
+        # receives one reference interval so startup behavior stays stable.
+        elapsed = time.time() - updated_at if updated_at > 0 else _DECAY_INTERVAL
+        intervals = max(0.0, elapsed / _DECAY_INTERVAL)
+        effective_decay = 1.0 - (1.0 - _DECAY_RATE) ** intervals
         current = PADVector(
-            pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
-            arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
-            dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
+            pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * effective_decay,
+            arousal=current.arousal + (baseline.arousal - current.arousal) * effective_decay,
+            dominance=current.dominance + (baseline.dominance - current.dominance) * effective_decay,
         )
 
         # Apply appraisal from user state
