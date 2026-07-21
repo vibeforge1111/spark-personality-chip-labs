@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -218,3 +219,21 @@ class TestSaveStateCleanup:
         assert abs(loaded_pad.arousal - 0.3) < 0.01
         assert abs(loaded_pad.dominance - 0.1) < 0.01
         assert updated_at > 0
+
+    def test_persisted_update_wraps_load_modify_save_in_one_lock(self, tmp_path):
+        events = []
+
+        @contextmanager
+        def recording_lock(path):
+            events.append(("lock", path))
+            yield
+            events.append(("unlock", path))
+
+        state_file = tmp_path / "emotional_state.json"
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            with patch("personality_engine.emotional_state.exclusive_file_lock", recording_lock):
+                with patch("personality_engine.emotional_state._load_state", side_effect=lambda: events.append(("load", state_file)) or (PADVector(), 0.0)):
+                    with patch("personality_engine.emotional_state._save_state", side_effect=lambda pad: events.append(("save", pad))):
+                        update_emotional_state(_make_chip(), user_state="curious", persist=True)
+
+        assert [event[0] for event in events] == ["lock", "load", "save", "unlock"]

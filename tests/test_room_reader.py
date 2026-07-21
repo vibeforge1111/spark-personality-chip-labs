@@ -1,6 +1,7 @@
 """Tests for room_reader module."""
 
 import json
+from contextlib import contextmanager
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -185,3 +186,21 @@ class TestTrajectory:
                 _save_trajectory([{"ts": 1, "state": "curious", "score": 0.5}])
 
         assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_persisted_read_wraps_load_modify_save_in_one_lock(self, tmp_path):
+        events = []
+
+        @contextmanager
+        def recording_lock(path):
+            events.append(("lock", path))
+            yield
+            events.append(("unlock", path))
+
+        trajectory_file = tmp_path / "room_trajectory.json"
+        with patch("personality_engine.room_reader._TRAJECTORY_FILE", trajectory_file):
+            with patch("personality_engine.room_reader.exclusive_file_lock", recording_lock):
+                with patch("personality_engine.room_reader._load_trajectory", side_effect=lambda: events.append(("load", trajectory_file)) or []):
+                    with patch("personality_engine.room_reader._save_trajectory", side_effect=lambda rows: events.append(("save", len(rows)))):
+                        read_room("this is broken and still failing", persist_trajectory=True)
+
+        assert [event[0] for event in events] == ["lock", "load", "save", "unlock"]

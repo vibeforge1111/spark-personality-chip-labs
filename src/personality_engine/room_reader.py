@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, read_json_object
+from .storage import atomic_write_json, exclusive_file_lock, read_json_object
 
 
 # ---------------------------------------------------------------------------
@@ -286,16 +286,18 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
         return RoomReading()
 
     # Trajectory tracking
-    trajectory_entries = _load_trajectory() if persist_trajectory else []
-    trajectory = _compute_trajectory(trajectory_entries, confidence)
-
     if persist_trajectory:
-        trajectory_entries.append({
-            "ts": time.time(),
-            "state": primary,
-            "score": round(confidence, 3),
-        })
-        _save_trajectory(trajectory_entries)
+        with exclusive_file_lock(_TRAJECTORY_FILE):
+            trajectory_entries = _load_trajectory()
+            trajectory = _compute_trajectory(trajectory_entries, confidence)
+            trajectory_entries.append({
+                "ts": time.time(),
+                "state": primary,
+                "score": round(confidence, 3),
+            })
+            _save_trajectory(trajectory_entries)
+    else:
+        trajectory = _compute_trajectory([], confidence)
 
     return RoomReading(
         primary_state=primary,

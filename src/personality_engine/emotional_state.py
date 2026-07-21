@@ -23,11 +23,12 @@ Lightweight: ~150 lines, pure math, no external APIs.
 from __future__ import annotations
 
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, read_json_object
+from .storage import atomic_write_json, exclusive_file_lock, read_json_object
 
 
 # ---------------------------------------------------------------------------
@@ -223,25 +224,27 @@ def update_emotional_state(
         Updated PAD vector representing current emotional state
     """
     baseline = get_baseline_pad(chip)
-    current, _ = _load_state()
+    transaction = exclusive_file_lock(_STATE_FILE) if persist else nullcontext()
+    with transaction:
+        current, _ = _load_state()
 
-    # Decay toward baseline
-    current = PADVector(
-        pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
-        arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
-        dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
-    )
+        # Decay toward baseline
+        current = PADVector(
+            pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
+            arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
+            dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
+        )
 
-    # Apply appraisal from user state
-    delta = appraise(user_state, intensity)
-    current = PADVector(
-        pleasure=current.pleasure + delta.pleasure,
-        arousal=current.arousal + delta.arousal,
-        dominance=current.dominance + delta.dominance,
-    ).clamp()
+        # Apply appraisal from user state
+        delta = appraise(user_state, intensity)
+        current = PADVector(
+            pleasure=current.pleasure + delta.pleasure,
+            arousal=current.arousal + delta.arousal,
+            dominance=current.dominance + delta.dominance,
+        ).clamp()
 
-    if persist:
-        _save_state(current)
+        if persist:
+            _save_state(current)
 
     return current
 
