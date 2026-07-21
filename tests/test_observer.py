@@ -1,8 +1,11 @@
 """Tests for personality drift observer."""
 
+import json
+
 import pytest
 from personality_engine.schema import build_personality, SCHEMA_VERSION
-from personality_engine.observer import observe_response
+from personality_engine import observer
+from personality_engine.observer import get_drift_history, observe_response
 
 
 def _make_chip():
@@ -97,3 +100,28 @@ class TestRecommendations:
         )
         assert report["drift_score"] > 0.3
         assert report["recommendation"] is not None
+
+
+class TestDriftHistory:
+
+    def test_reads_only_bounded_tail_and_returns_latest_valid_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(observer, "INSIGHTS_DIR", tmp_path)
+        log = tmp_path / "personality_obs-test.jsonl"
+        oversized_prefix = b"x" * (observer._MAX_HISTORY_TAIL_BYTES + 64)
+        rows = [{"index": index} for index in range(5)]
+        log.write_bytes(oversized_prefix + b"\n" + b"\n".join(json.dumps(row).encode() for row in rows) + b"\n")
+
+        assert get_drift_history("obs-test", limit=3) == rows[-3:]
+
+    def test_skips_malformed_and_non_object_tail_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(observer, "INSIGHTS_DIR", tmp_path)
+        log = tmp_path / "personality_obs-test.jsonl"
+        log.write_bytes(b'{"index": 1}\nnot-json\n[]\n\xff\n{"index": 2}\n')
+
+        assert get_drift_history("obs-test", limit=10) == [{"index": 1}, {"index": 2}]
+
+    def test_non_positive_limit_reads_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(observer, "INSIGHTS_DIR", tmp_path)
+        (tmp_path / "personality_obs-test.jsonl").write_text('{"index": 1}\n', encoding="utf-8")
+
+        assert get_drift_history("obs-test", limit=0) == []

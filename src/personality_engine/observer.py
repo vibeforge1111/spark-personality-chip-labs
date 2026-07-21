@@ -29,6 +29,7 @@ from .schema import PersonalityChip
 # (letters, digits, '_' and '-', any case, length 1-64) so legitimate ids are
 # accepted, while '/', '\\', '.', whitespace and '..' are still rejected.
 _VALID_LOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_MAX_HISTORY_TAIL_BYTES = 1_048_576
 
 
 def _safe_log_id(personality_id: str) -> str:
@@ -121,20 +122,37 @@ def get_drift_history(
     if not log_path.exists():
         return []
 
-    entries = []
-    try:
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-    except IOError:
+    if limit <= 0:
         return []
 
-    return entries[-limit:]
+    entries: list[dict] = []
+    try:
+        file_size = log_path.stat().st_size
+        start = max(0, file_size - _MAX_HISTORY_TAIL_BYTES)
+        with open(log_path, "rb") as f:
+            f.seek(start)
+            tail = f.read(_MAX_HISTORY_TAIL_BYTES)
+    except OSError:
+        return []
+
+    lines = tail.splitlines()
+    if start and lines:
+        # The bounded read may begin halfway through a JSON record.
+        lines = lines[1:]
+    for raw_line in reversed(lines):
+        if not raw_line.strip():
+            continue
+        try:
+            entry = json.loads(raw_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        entries.append(entry)
+        if len(entries) == limit:
+            break
+    entries.reverse()
+    return entries
 
 
 # ── Detection Functions ──
