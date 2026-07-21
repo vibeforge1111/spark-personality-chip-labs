@@ -76,6 +76,37 @@ def test_personality_cli_help_exits_successfully() -> None:
     assert "Usage:" in result.stdout
 
 
+def test_personality_cli_no_args_is_a_usage_error() -> None:
+    result = _run_cli()
+
+    assert result.returncode == 1
+    assert "Usage:" in result.stdout
+
+
+def test_personality_cli_activate_without_id_is_a_usage_error() -> None:
+    result = _run_cli("activate")
+
+    assert result.returncode == 1
+    assert "Usage: personality_cli.py activate" in result.stdout
+
+
+def test_personality_cli_status_fails_for_missing_active_chip(tmp_path) -> None:
+    active = tmp_path / ".spark" / "active_personality.json"
+    active.parent.mkdir(parents=True)
+    active.write_text('{"personality_id":"missing-chip"}', encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, "scripts/personality_cli.py", "status"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 1
+    assert "could not load personality 'missing-chip'" in result.stdout
+
+
 def test_personality_cli_activate_chip_typo_suggests_closest() -> None:
     result = _run_cli("activate", "artemiss")
 

@@ -57,12 +57,17 @@ Validate a personality file:
 
 ```bash
 python scripts/validate_personality.py personalities/forge.personality.yaml
+python scripts/validate_personality.py --verbose --output /tmp/personality-report.txt personalities/
 ```
 
-Run the Spark hook:
+Run the Spark hook (reads JSON from `--input` and always writes result JSON to `--output`):
 
 ```bash
-python -m personality_engine.spark_hook personality --payload-json "{\"action\":\"status\"}"
+echo '{"human_id":"human:local:demo","agent_id":"agent:local:demo"}' > /tmp/personality-input.json
+SPARK_PERSONALITY=artemis python -m personality_engine.spark_hook personality \
+  --input /tmp/personality-input.json \
+  --output /tmp/personality-output.json
+cat /tmp/personality-output.json
 ```
 
 Set a local active personality from a host Spark environment:
@@ -86,7 +91,9 @@ personalities, archetypes, room-reading behavior, and modular personality
 profiles.
 
 Use Spark Character for the default Spark voice. Use this repo when you want a
-portable personality chip that can be selected, validated, and tested.
+portable personality chip that can be selected, validated, and tested. The
+public manifest intentionally exposes only the implemented `personality`
+capability.
 
 ## Security
 
