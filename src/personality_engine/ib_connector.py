@@ -129,8 +129,8 @@ def sync_to_intelligence_builder(
         },
     }
 
-    state_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(state_path, state)
     except OSError:
         pass

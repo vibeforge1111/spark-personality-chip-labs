@@ -3,6 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from personality_engine.schema import PersonalityChip
 from personality_engine.ib_connector import (
@@ -123,6 +124,14 @@ class TestSyncToIntelligenceBuilder:
             chip = _make_chip()
             state = sync_to_intelligence_builder(chip, state_path=path)
             assert state["interaction_count"] == 0
+
+    def test_directory_creation_failure_does_not_crash_sync(self, tmp_path):
+        path = tmp_path / "unavailable" / "personality_evolution_v1.json"
+        with patch.object(Path, "mkdir", side_effect=OSError("permission denied")):
+            state = sync_to_intelligence_builder(_make_chip(), state_path=path)
+        assert state["interaction_count"] == 0
+        assert state["last_signals"]["personality_id"] == "test-chip"
+        assert not path.exists()
 
 
 class TestBuildBuilderPersonalityImport:
