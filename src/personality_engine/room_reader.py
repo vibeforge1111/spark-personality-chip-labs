@@ -16,6 +16,7 @@ Lightweight: ~200 lines, zero external dependencies, no ML inference.
 from __future__ import annotations
 
 import re
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -91,6 +92,10 @@ _EXCITEMENT_CAPS_EXCLUDE = frozenset({
     "POSIX", "MSYS", "MINGW", "WSL", "GPU", "CUDA", "RTOS", "FIFO", "LIFO",
     "NULL", "NONE", "TRUE", "FALSE", "TODO", "FIXME", "HACK", "NOTE", "WARN",
     "ERR", "INFO", "DEBUG", "TRACE", "FATAL",
+    "TUI", "NFC", "JPG", "WEBP", "CORS", "CSRF", "XSS", "SHA", "RSA", "AES",
+    "NTP", "MQTT", "GRPC", "REST", "SOAP", "CRUD", "ORM", "MVC", "OOP", "LLM",
+    "NLP", "ML", "DL", "RAG", "SFT", "LORA", "QLORA", "PAD", "OCEAN", "CI", "CD",
+    "VCS", "PR", "LGTM", "WIP", "FYI", "ETA", "TBD", "TBA",
 })
 
 _SYNTACTIC_PATTERNS: dict[str, list[tuple[str, float]]] = {
@@ -197,7 +202,14 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     if len(entries) < 2:
         return "stable"
 
-    scores = [e.get("score", 0.0) for e in entries[-4:]] + [current_score]
+    scores = [
+        score
+        for entry in entries[-4:]
+        if (score := _validated_score(entry.get("score"))) is not None
+    ]
+    validated_current = _validated_score(current_score)
+    if validated_current is not None:
+        scores.append(validated_current)
     if len(scores) < 3:
         return "stable"
 
@@ -213,6 +225,16 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     elif avg_delta < -0.1:
         return "falling"
     return "stable"
+
+
+def _validated_score(value: object) -> Optional[float]:
+    """Return a finite, bounded trajectory score or reject malformed state."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    score = float(value)
+    if not math.isfinite(score):
+        return None
+    return min(max(score, 0.0), 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -248,10 +270,11 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
             state_scores[state] = state_scores.get(state, 0.0) + score
             total_signals += hits
 
-    # Layer 2: Syntactic patterns (no IGNORECASE — case matters for structural signals)
+    # Layer 2: Syntactic patterns. ALL CAPS is handled separately below so
+    # ordinary structural signals can match natural sentence capitalization.
     for state, patterns in _SYNTACTIC_PATTERNS.items():
         for pattern, weight in patterns:
-            if re.search(pattern, text):
+            if re.search(pattern, text, re.IGNORECASE):
                 state_scores[state] = state_scores.get(state, 0.0) + weight
                 total_signals += 1
 
@@ -320,10 +343,13 @@ def read_room_from_hook_input(tool_input: dict) -> RoomReading:
         if isinstance(val, str) and val.strip():
             text_parts.append(val)
 
-    # File paths can hint at urgency (hotfix, quick-fix, etc.)
+    # Only inspect the basename. Directory names are operational context, not
+    # evidence of the user's emotional state.
     fp = tool_input.get("file_path", "")
     if isinstance(fp, str) and fp:
-        text_parts.append(fp)
+        basename = Path(fp).name
+        if basename:
+            text_parts.append(basename)
 
     return read_room(" ".join(text_parts)) if text_parts else RoomReading()
 
@@ -336,7 +362,11 @@ def get_trajectory_summary() -> dict:
 
     recent = entries[-_WINDOW_SIZE:]
     states = [e.get("state", "neutral") for e in recent]
-    scores = [e.get("score", 0.0) for e in recent]
+    scores = [
+        score
+        for entry in recent
+        if (score := _validated_score(entry.get("score"))) is not None
+    ]
 
     return {
         "trajectory": _compute_trajectory(recent, scores[-1] if scores else 0.0),
