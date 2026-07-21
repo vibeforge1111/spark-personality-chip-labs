@@ -25,6 +25,7 @@ truth, PersonalityEvolver adapts from there.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -35,6 +36,7 @@ from .storage import atomic_write_json
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
 IB_STATE_ROOT = IB_STATE_PATH.parent
 IB_STATE_VERSION = 1
+logger = logging.getLogger(__name__)
 
 
 def _validate_evolver_state_path(raw: str | Path) -> Path:
@@ -130,8 +132,12 @@ def sync_to_intelligence_builder(
         try:
             existing = json.loads(state_path.read_text(encoding="utf-8"))
             existing_count = int(existing.get("interaction_count", 0))
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError):
-            pass
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "persisted Intelligence Builder state was invalid; "
+                "interaction_count reset to zero (%s)",
+                type(exc).__name__,
+            )
 
     state = {
         "version": IB_STATE_VERSION,
@@ -145,12 +151,18 @@ def sync_to_intelligence_builder(
         },
     }
 
+    persisted = False
     try:
         state_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(state_path, state)
-    except OSError:
-        pass
+        persisted = atomic_write_json(state_path, state)
+    except OSError as exc:
+        logger.warning(
+            "Intelligence Builder state was not persisted (%s)",
+            type(exc).__name__,
+        )
 
+    # Runtime evidence only; the on-disk contract remains unchanged.
+    state["_sync_persisted"] = persisted
     return state
 
 

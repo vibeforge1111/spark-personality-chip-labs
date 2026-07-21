@@ -101,7 +101,7 @@ class TestSyncToIntelligenceBuilder:
             state = sync_to_intelligence_builder(chip, state_path=path)
             assert state["interaction_count"] == 42
 
-    def test_malformed_interaction_count_does_not_block_sync(self):
+    def test_malformed_interaction_count_does_not_block_sync(self, caplog):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "personality_evolution_v1.json"
             path.write_text(json.dumps({"interaction_count": "not-an-int"}))
@@ -110,8 +110,11 @@ class TestSyncToIntelligenceBuilder:
             state = sync_to_intelligence_builder(chip, state_path=path)
             assert state["interaction_count"] == 0
             assert state["last_signals"]["personality_id"] == "test-chip"
+            assert state["_sync_persisted"] is True
+            assert "interaction_count reset to zero (ValueError)" in caplog.text
+            assert str(path) not in caplog.text
 
-    def test_non_object_existing_state_does_not_block_sync(self):
+    def test_non_object_existing_state_does_not_block_sync(self, caplog):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "personality_evolution_v1.json"
             path.write_text(json.dumps(["unexpected", "state"]))
@@ -120,6 +123,7 @@ class TestSyncToIntelligenceBuilder:
             state = sync_to_intelligence_builder(chip, state_path=path)
             assert state["interaction_count"] == 0
             assert state["last_signals"]["personality_id"] == "test-chip"
+            assert "interaction_count reset to zero (AttributeError)" in caplog.text
 
     def test_fresh_file_zero_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -128,12 +132,16 @@ class TestSyncToIntelligenceBuilder:
             state = sync_to_intelligence_builder(chip, state_path=path)
             assert state["interaction_count"] == 0
 
-    def test_directory_creation_failure_does_not_crash_sync(self, tmp_path):
+    def test_directory_creation_failure_does_not_crash_sync(self, tmp_path, caplog):
         path = tmp_path / "unavailable" / "personality_evolution_v1.json"
         with patch.object(Path, "mkdir", side_effect=OSError("permission denied")):
             state = sync_to_intelligence_builder(_make_chip(), state_path=path)
         assert state["interaction_count"] == 0
         assert state["last_signals"]["personality_id"] == "test-chip"
+        assert state["_sync_persisted"] is False
+        assert "state was not persisted (OSError)" in caplog.text
+        assert "permission denied" not in caplog.text
+        assert str(path) not in caplog.text
         assert not path.exists()
 
 
