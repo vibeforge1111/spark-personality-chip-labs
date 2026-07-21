@@ -185,6 +185,50 @@ class TestGetActivePersonalityId:
             assert get_active_personality_id() is None
 
 
+class TestResolveActiveResilience:
+
+    def test_binary_and_non_object_active_files_degrade_cleanly(self, tmp_path):
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "active.json"
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            active_file.write_bytes(b"\xff\xfe\x00\x80")
+            assert _resolve_personality_id() == (None, None)
+            active_file.write_text('["not", "an", "object"]', encoding="utf-8")
+            assert _resolve_personality_id() == (None, None)
+            active_file.write_text('{"personality_id": null}', encoding="utf-8")
+            assert _resolve_personality_id() == (None, None)
+
+    def test_binary_project_pointer_and_non_path_project_dir_degrade_cleanly(self, tmp_path):
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "missing.json"
+        (tmp_path / ".personality").write_bytes(b"\xff\xfeforge\x80")
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            assert _resolve_personality_id(project_dir=str(tmp_path)) == (None, None)
+            assert _resolve_personality_id(project_dir=["not", "a", "path"]) == (None, None)
+
+    def test_non_path_explicit_pointer_does_not_override_safe_search(self, tmp_path):
+        os.environ.pop("SPARK_PERSONALITY", None)
+        active_file = tmp_path / "active.json"
+        active_file.write_text(
+            json.dumps({"personality_id": "missing", "personality_path": ["bad"]}),
+            encoding="utf-8",
+        )
+        with patch("personality_engine.active.ACTIVE_FILE", active_file):
+            assert get_active_personality(search_paths=[tmp_path]) is None
+
+
+class TestFileCacheShape:
+
+    def test_non_numeric_non_finite_and_non_object_cache_state_is_ignored(self, tmp_path):
+        from personality_engine.active import _check_file_cache
+
+        cache_file = tmp_path / "active_cache.json"
+        with patch("personality_engine.active.CACHE_FILE", cache_file):
+            for payload in (["bad"], {"cached_at": "bad"}, {"cached_at": None}, {"cached_at": float("nan")}):
+                cache_file.write_text(json.dumps(payload), encoding="utf-8")
+                assert _check_file_cache() is None
+
+
 class TestCacheInvalidation:
     """Resolving the id before consulting caches (PR #6)."""
 

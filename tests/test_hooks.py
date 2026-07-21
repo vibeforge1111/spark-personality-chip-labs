@@ -200,6 +200,17 @@ class TestPreToolUse:
         assert "hookSpecificOutput" in result
         assert "frustrated" in result["hookSpecificOutput"]["additionalContext"]
 
+    def test_resolves_project_personality_for_pre_tool_hook(self):
+        chip = build_personality({"identity": {"id": "project-pre", "name": "ProjectPre"}})
+        with patch("personality_engine.active.get_active_personality", return_value=chip) as get_active:
+            handle_pre_tool_use({
+                "cwd": "/workspace/project",
+                "tool_name": "Bash",
+                "tool_input": {"command": "# still failing tried everything"},
+            })
+
+        get_active.assert_called_once_with(project_dir="/workspace/project")
+
 
 class TestPostToolUse:
 
@@ -232,3 +243,15 @@ class TestPostToolUse:
                 "tool_output": "Here is the result of the analysis. " * 5,
             })
         assert result == {}
+
+    def test_resolves_project_personality_for_post_tool_hook(self):
+        chip = build_personality({"identity": {"id": "project-post", "name": "ProjectPost"}})
+        with patch("personality_engine.active.get_active_personality", return_value=chip) as get_active:
+            handle_post_tool_use({
+                "cwd": "/workspace/project",
+                "tool_name": "Bash",
+                "tool_input": {"command": "python main.py"},
+                "tool_output": "Here is the result of the analysis. " * 5,
+            })
+
+        get_active.assert_called_once_with(project_dir="/workspace/project")
