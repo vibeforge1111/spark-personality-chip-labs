@@ -1,5 +1,7 @@
 """Tests for personality context injector."""
 
+import warnings
+
 import pytest
 from personality_engine.schema import build_personality, SCHEMA_VERSION
 from personality_engine.context import build_personality_context
@@ -142,7 +144,7 @@ class TestAdaptive:
     def test_with_unknown_state(self):
         chip = _make_chip()
         ctx = build_personality_context(chip, style="adaptive", user_state="bored")
-        assert "no specific adaptation" in ctx.lower() or "defaults" in ctx.lower()
+        assert ctx == ""
 
     def test_unknown_state_omits_empty_voice_line(self):
         chip = _make_chip(identity={"id": "ctx-test", "name": "ContextTest", "voice_signature": ""})
@@ -155,3 +157,22 @@ class TestAdaptive:
         ctx = build_personality_context(chip, style="adaptive")
         # Should fall back to concise
         assert "ContextTest" in ctx
+
+
+class TestUnknownStyleWarning:
+
+    def test_unknown_style_warns_and_returns_concise_output(self):
+        chip = _make_chip()
+
+        with pytest.warns(UserWarning, match="Unknown context style 'compact'"):
+            unknown = build_personality_context(chip, style="compact")
+
+        assert unknown == build_personality_context(chip, style="concise")
+
+    def test_known_styles_do_not_warn(self):
+        chip = _make_chip()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            for style in ("concise", "detailed", "guardrails", "adaptive"):
+                build_personality_context(chip, style=style)

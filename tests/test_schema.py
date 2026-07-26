@@ -211,6 +211,13 @@ class TestValidation:
         errors = validate_personality(spec)
         assert any("risk_appetite" in e for e in errors)
 
+    def test_preference_sub_blocks_return_typed_errors(self):
+        spec = _minimal_spec()
+        spec["preferences"] = {"communication": "verbose", "decision_making": []}
+        errors = validate_personality(spec)
+        assert "preferences.communication must be a dict" in errors
+        assert "preferences.decision_making must be a dict" in errors
+
     def test_anti_patterns_must_be_strings(self):
         spec = _minimal_spec()
         spec["anti_patterns"] = [123]
@@ -272,6 +279,12 @@ class TestBuild:
         assert chip.name == "TestBot"
         assert chip.archetype == "builder"  # default
         assert chip.openness == 0.50  # default
+
+    def test_missing_identity_fields_raise_value_error_not_key_error(self):
+        with pytest.raises(ValueError, match="identity.id"):
+            build_personality({"identity": {"name": "Missing ID"}})
+        with pytest.raises(ValueError, match="identity.name"):
+            build_personality({"identity": {"id": "missing-name"}})
 
     def test_full_build(self):
         chip = build_personality(_full_spec())

@@ -17,9 +17,9 @@ Directory format allows modular overrides:
   └── custom.yaml             # Any custom sections (merged in)
 """
 
+import copy
 import os
 from pathlib import Path
-from typing import Optional
 
 from .schema import PersonalityChip, validate_personality, build_personality
 
@@ -31,7 +31,7 @@ except ImportError:
 _RECOVERABLE_OVERLAY_ERRORS = (OSError, ValueError) + ((yaml.YAMLError,) if yaml is not None else ())
 
 
-def load_personality(path: str | Path) -> Optional[PersonalityChip]:
+def load_personality(path: str | Path) -> PersonalityChip:
     """
     Load a personality chip from a file or directory.
 
@@ -39,7 +39,7 @@ def load_personality(path: str | Path) -> Optional[PersonalityChip]:
         path: Path to .personality.yaml file or directory containing personality.yaml
 
     Returns:
-        PersonalityChip if valid, None if validation fails.
+        Validated PersonalityChip instance.
 
     Raises:
         FileNotFoundError: If path doesn't exist.
@@ -61,7 +61,10 @@ def load_personality(path: str | Path) -> Optional[PersonalityChip]:
             + "\n".join(f"  - {e}" for e in errors)
         )
 
-    return build_personality(spec)
+    chip = build_personality(spec)
+    # Registry reloads must not depend on the process working directory.
+    chip.source_path = str(path.resolve())
+    return chip
 
 
 def load_all_personalities(
@@ -90,6 +93,8 @@ def load_all_personalities(
     chips = []
     for entry in sorted(directory.iterdir()):
         try:
+            if entry.is_symlink():
+                continue
             if entry.is_file() and entry.name.endswith(".personality.yaml") and not entry.name.startswith("_"):
                 chip = load_personality(entry)
                 if chip:
@@ -104,13 +109,35 @@ def load_all_personalities(
     return chips
 
 
-def _deep_merge(base: dict, overlay: dict) -> None:
+_MAX_MERGE_DEPTH = 32
+
+
+def _validate_merge_depth(value: object, *, _depth: int = 0) -> None:
+    """Reject mappings that would exceed the bounded overlay depth."""
+    if not isinstance(value, dict):
+        return
+    if _depth >= _MAX_MERGE_DEPTH:
+        raise RecursionError(f"overlay merge exceeds {_MAX_MERGE_DEPTH} levels")
+    for nested in value.values():
+        _validate_merge_depth(nested, _depth=_depth + 1)
+
+
+def _deep_merge(base: dict, overlay: dict, *, _depth: int = 0) -> None:
     """Recursively merge overlay into base (mutates base)."""
+    if _depth == 0:
+        _validate_merge_depth(overlay)
+    if _depth >= _MAX_MERGE_DEPTH:
+        raise RecursionError(f"overlay merge exceeds {_MAX_MERGE_DEPTH} levels")
     for key, value in overlay.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-            _deep_merge(base[key], value)
+            _deep_merge(base[key], value, _depth=_depth + 1)
         else:
             base[key] = value
+
+
+def _overlay_warning(filename: str, exc: BaseException) -> str:
+    """Return overlay evidence without reflecting file content or paths."""
+    return f"{filename}: {type(exc).__name__}"
 
 
 def _load_directory(directory: Path) -> dict:
@@ -143,7 +170,7 @@ def _load_directory(directory: Path) -> dict:
                 overlay_data = _load_yaml(overlay_path)
             except _RECOVERABLE_OVERLAY_ERRORS as exc:
                 spec.setdefault("_overlay_load_warnings", []).append(
-                    f"{filename}: {type(exc).__name__}: {exc}"
+                    _overlay_warning(filename, exc)
                 )
                 continue
             if isinstance(overlay_data, dict):
@@ -157,16 +184,30 @@ def _load_directory(directory: Path) -> dict:
                         # Use the section key if present, otherwise use root
                         merge_data = overlay_data.get(section_key, overlay_data)
                         if isinstance(merge_data, dict):
-                            _deep_merge(existing, merge_data)
-                            spec[section_key] = existing
+                            candidate = copy.deepcopy(existing)
+                            try:
+                                _deep_merge(candidate, merge_data)
+                            except RecursionError as exc:
+                                spec.setdefault("_overlay_load_warnings", []).append(
+                                    _overlay_warning(filename, exc)
+                                )
+                            else:
+                                spec[section_key] = candidate
                         else:
-                            spec[section_key] = merge_data
+                            spec.setdefault("_overlay_load_warnings", []).append(
+                                _overlay_warning(filename, TypeError())
+                            )
 
     # Custom overlay — merges at root level for any extra sections
     custom_path = directory / "custom.yaml"
     if custom_path.exists():
-        custom_data = _load_yaml(custom_path)
-        if isinstance(custom_data, dict):
+        try:
+            custom_data = _load_yaml(custom_path)
+        except _RECOVERABLE_OVERLAY_ERRORS as exc:
+            spec.setdefault("_overlay_load_warnings", []).append(
+                _overlay_warning("custom.yaml", exc)
+            )
+        else:
             for key, value in custom_data.items():
                 if key not in spec:
                     spec[key] = value
@@ -181,7 +222,7 @@ def _load_yaml(path: Path) -> dict:
             "PyYAML is required: pip install pyyaml"
         )
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8-sig") as f:
         data = yaml.safe_load(f)
 
     if not isinstance(data, dict):

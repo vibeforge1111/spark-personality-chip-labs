@@ -12,6 +12,7 @@ from personality_engine.bridge import (
     write_bridge,
     read_bridge,
     clear_bridge,
+    refresh_bridge_emotional_state,
 )
 
 
@@ -123,6 +124,16 @@ class TestEmotionalState:
         chip = _make_chip()
         payload = build_bridge_payload(chip)
         assert payload["emotional_state"]["staleness_seconds"] == 0
+
+    def test_explicit_dynamic_state_is_published_unchanged(self):
+        chip = _make_chip()
+        dynamic = {
+            "mood": "builder", "intensity": 0.72, "continuity_influence": 0.3,
+            "primary_emotion": "focused", "confidence": 0.85,
+            "staleness_seconds": 0, "pad_vector": {"pleasure": 0.1, "arousal": 0.2, "dominance": 0.3},
+        }
+        payload = build_bridge_payload(chip, emotional_state=dynamic)
+        assert payload["emotional_state"] == dynamic
 
 
 class TestGuidance:
@@ -312,6 +323,31 @@ class TestBridgeIO:
 
         assert read_bridge(bridge_path) is None
 
+    @pytest.mark.parametrize("ttl", ["120s", None, True, float("nan"), float("inf"), -1])
+    def test_invalid_ttl_uses_bounded_default_and_still_surfaces_staleness(self, tmp_path, ttl):
+        bridge_path = tmp_path / "test_bridge.json"
+        bridge_path.write_text(json.dumps({
+            "schema_version": "bridge.v1",
+            "generated_at": "2000-01-01T00:00:00Z",
+            "meta": {"ttl_seconds": ttl},
+        }), encoding="utf-8")
+        payload = read_bridge(bridge_path)
+        assert payload is not None
+        assert payload["_stale"] is True
+
+    def test_refresh_publishes_the_same_dynamic_state(self, tmp_path):
+        chip = _make_chip()
+        bridge_path = tmp_path / "test_bridge.json"
+        dynamic = {"mood": "zen", "intensity": 0.61, "primary_emotion": "steady"}
+        with patch("personality_engine.emotional_state.build_emotional_state_for_bridge", return_value=dynamic) as build:
+            payload = refresh_bridge_emotional_state(
+                chip, user_state="curious", intensity=0.7,
+                session_id="session-proof", bridge_path=bridge_path,
+            )
+        build.assert_called_once_with(chip, user_state="curious", intensity=0.7, persist=True)
+        assert payload["emotional_state"] == dynamic
+        assert read_bridge(bridge_path)["emotional_state"] == dynamic
+
     def test_write_bridge_preserves_old_file_after_replace_failure(self, tmp_path):
         chip = _make_chip()
         bridge_path = tmp_path / "test_bridge.json"
@@ -358,4 +394,11 @@ class TestVerbosityMapping:
             "identity": {"id": "verb-test", "name": "VerbTest"},
         })
         payload = build_bridge_payload(chip)
+        assert payload["guidance"]["verbosity"] == "medium"
+
+    def test_non_mapping_communication_falls_back_to_medium(self):
+        chip = _make_chip()
+        chip.communication = "detailed"
+        payload = build_bridge_payload(chip)
+        assert payload["guidance"]["verbosity"] == "medium"
         assert payload["guidance"]["verbosity"] == "medium"

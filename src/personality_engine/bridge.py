@@ -17,10 +17,12 @@ and adds a `personality_ext` block for personality-specific data
 that Spark Consciousness ignores but personality hooks can use.
 """
 
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .prompt_data import bounded_prompt_data
 from .schema import PersonalityChip
 from .storage import atomic_write_json, read_json_object
 
@@ -55,6 +57,7 @@ def write_bridge(
     chip: PersonalityChip,
     session_id: str = "default",
     bridge_path: Path = BRIDGE_FILE,
+    emotional_state: Optional[dict] = None,
 ) -> dict:
     """
     Write the consciousness bridge file from a personality chip.
@@ -73,7 +76,7 @@ def write_bridge(
     Returns:
         The bridge payload dict that was written.
     """
-    payload = build_bridge_payload(chip, session_id)
+    payload = build_bridge_payload(chip, session_id, emotional_state=emotional_state)
 
     atomic_write_json(bridge_path, payload)
 
@@ -83,6 +86,7 @@ def write_bridge(
 def build_bridge_payload(
     chip: PersonalityChip,
     session_id: str = "default",
+    emotional_state: Optional[dict] = None,
 ) -> dict:
     """
     Build the bridge.v1 payload without writing to disk.
@@ -103,14 +107,7 @@ def build_bridge_payload(
             "scope": "runtime",
         },
 
-        "emotional_state": {
-            "mood": _MOOD_TO_SPARK.get(chip.default_mood, chip.default_mood),
-            "intensity": _compute_baseline_intensity(chip),
-            "continuity_influence": chip.carry_over_weight,
-            "primary_emotion": _MOOD_TO_EMOTION.get(chip.default_mood, "steady"),
-            "confidence": 0.85,
-            "staleness_seconds": 0,
-        },
+        "emotional_state": emotional_state if isinstance(emotional_state, dict) else _static_emotional_state(chip),
 
         "guidance": {
             "response_pace": _compute_pace(chip),
@@ -120,7 +117,7 @@ def build_bridge_payload(
         },
 
         "mission": {
-            "anchor": f"Serve as {chip.name} ({chip.archetype})",
+            "anchor": f"Serve as {bounded_prompt_data(chip.name)} ({bounded_prompt_data(chip.archetype)})",
             "kernel": {
                 "non_harm": True,
                 "service": True,
@@ -138,7 +135,7 @@ def build_bridge_payload(
         "meta": {
             "ttl_seconds": 120,
             "personality_id": chip.id,
-            "personality_name": chip.name,
+            "personality_name": bounded_prompt_data(chip.name),
         },
 
         # ── Personality-specific extensions ──
@@ -184,6 +181,13 @@ def read_bridge(bridge_path: Path = BRIDGE_FILE) -> Optional[dict]:
     ts = payload.get("generated_at") or payload.get("timestamp")
     meta = payload.get("meta", {})
     ttl = meta.get("ttl_seconds", 120) if isinstance(meta, dict) else 120
+    if (
+        isinstance(ttl, bool)
+        or not isinstance(ttl, (int, float))
+        or not math.isfinite(ttl)
+        or ttl <= 0
+    ):
+        ttl = 120
     if ts:
         try:
             if not isinstance(ts, str):
@@ -206,12 +210,50 @@ def clear_bridge(bridge_path: Path = BRIDGE_FILE) -> None:
     bridge_path.unlink(missing_ok=True)
 
 
+def refresh_bridge_emotional_state(
+    chip: PersonalityChip,
+    *,
+    user_state: Optional[str],
+    intensity: float,
+    session_id: str,
+    bridge_path: Path = BRIDGE_FILE,
+) -> dict:
+    """Update persisted PAD state and publish the same state to the bridge."""
+    from .emotional_state import build_emotional_state_for_bridge
+
+    emotional_state = build_emotional_state_for_bridge(
+        chip,
+        user_state=user_state,
+        intensity=intensity,
+        persist=True,
+    )
+    return write_bridge(
+        chip,
+        session_id=session_id,
+        bridge_path=bridge_path,
+        emotional_state=emotional_state,
+    )
+
+
 # ── Value Mapping Helpers ──
 
 def _map_verbosity(chip: PersonalityChip) -> str:
     """Map personality verbosity to bridge.v1 enum: concise|medium|structured."""
-    raw = chip.communication.get("verbosity", "moderate")
+    communication = chip.communication if isinstance(chip.communication, dict) else {}
+    raw = communication.get("verbosity", "moderate")
     return _VERBOSITY_MAP.get(raw, "medium")
+
+
+def _static_emotional_state(chip: PersonalityChip) -> dict:
+    """Build the deterministic baseline used before interaction evidence."""
+    return {
+        "mood": _MOOD_TO_SPARK.get(chip.default_mood, chip.default_mood),
+        "intensity": _compute_baseline_intensity(chip),
+        "continuity_influence": chip.carry_over_weight,
+        "primary_emotion": _MOOD_TO_EMOTION.get(chip.default_mood, "steady"),
+        "confidence": 0.85,
+        "staleness_seconds": 0,
+    }
 
 
 def _map_tone_shape(chip: PersonalityChip) -> str:

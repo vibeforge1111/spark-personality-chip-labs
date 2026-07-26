@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -84,6 +85,20 @@ class TestSkipCommand:
 
     def test_skip_windows_exe(self):
         assert _should_skip_command("Bash", {"command": "git.exe status"}) is True
+
+    @pytest.mark.parametrize("command", [None, 1, [], {}])
+    def test_skip_malformed_command_values(self, command):
+        assert _should_skip_command("Bash", {"command": command}) is True
+
+    def test_skip_env_prefixed_and_quoted_command(self):
+        assert _should_skip_command("Bash", {"command": 'FOO=bar env BAZ=1 "/usr/bin/git" status'}) is True
+
+    def test_chained_real_work_is_not_hidden_by_skipped_prefix(self):
+        assert _should_skip_command("Bash", {"command": "cd /tmp && python app.py"}) is False
+        assert _should_skip_command("Bash", {"command": "git status | python app.py"}) is False
+
+    def test_all_skipped_chain_remains_skipped(self):
+        assert _should_skip_command("Bash", {"command": "cd /tmp && git status; ls"}) is True
 
 
 class TestDetectUserState:
@@ -192,13 +207,28 @@ class TestPreToolUse:
                 },
             },
         })
-        with patch("personality_engine.active.get_active_personality", return_value=chip):
+        with (
+            patch("personality_engine.active.get_active_personality", return_value=chip),
+            patch("personality_engine.bridge.refresh_bridge_emotional_state") as refresh_bridge,
+        ):
             result = handle_pre_tool_use({
                 "tool_name": "Bash",
                 "tool_input": {"command": "# still failing tried everything"},
             })
         assert "hookSpecificOutput" in result
         assert "frustrated" in result["hookSpecificOutput"]["additionalContext"]
+        refresh_bridge.assert_called_once()
+
+    def test_resolves_project_personality_for_pre_tool_hook(self):
+        chip = build_personality({"identity": {"id": "project-pre", "name": "ProjectPre"}})
+        with patch("personality_engine.active.get_active_personality", return_value=chip) as get_active:
+            handle_pre_tool_use({
+                "cwd": "/workspace/project",
+                "tool_name": "Bash",
+                "tool_input": {"command": "# still failing tried everything"},
+            })
+
+        get_active.assert_called_once_with(project_dir="/workspace/project")
 
 
 class TestPostToolUse:
@@ -232,3 +262,62 @@ class TestPostToolUse:
                 "tool_output": "Here is the result of the analysis. " * 5,
             })
         assert result == {}
+
+    def test_resolves_project_personality_for_post_tool_hook(self):
+        chip = build_personality({"identity": {"id": "project-post", "name": "ProjectPost"}})
+        with patch("personality_engine.active.get_active_personality", return_value=chip) as get_active:
+            handle_post_tool_use({
+                "cwd": "/workspace/project",
+                "tool_name": "Bash",
+                "tool_input": {"command": "python main.py"},
+                "tool_output": "Here is the result of the analysis. " * 5,
+            })
+
+        get_active.assert_called_once_with(project_dir="/workspace/project")
+
+    def test_agent_output_does_not_update_user_emotional_state(self):
+        chip = build_personality({"identity": {"id": "post-owner", "name": "PostOwner"}})
+        with (
+            patch("personality_engine.active.get_active_personality", return_value=chip),
+            patch("personality_engine.observer.observe_response", return_value={"drift_score": 0.0, "signals": []}),
+            patch("personality_engine.room_reader.read_room") as read_room,
+            patch("personality_engine.emotional_state.update_emotional_state") as update_state,
+        ):
+            result = handle_post_tool_use({
+                "tool_name": "Bash",
+                "tool_input": {"command": "python app.py"},
+                "tool_output": "The user seems frustrated and exhausted. " * 4,
+            })
+        assert result == {}
+        read_room.assert_not_called()
+        update_state.assert_not_called()
+
+    def test_observer_failure_is_nonreflecting_and_nonblocking(self, capsys):
+        chip = build_personality({"identity": {"id": "post-owner", "name": "PostOwner"}})
+        with (
+            patch("personality_engine.active.get_active_personality", return_value=chip),
+            patch("personality_engine.observer.observe_response", side_effect=ValueError("/secret/path")),
+        ):
+            result = handle_post_tool_use({
+                "tool_name": "Bash",
+                "tool_input": {"command": "python app.py"},
+                "tool_output": "A sufficiently long agent response for observation. " * 3,
+            })
+        captured = capsys.readouterr()
+        assert result == {}
+        assert captured.err == "[spark-personality] drift observation failed: ValueError\n"
+        assert "/secret/path" not in captured.err
+
+
+def test_read_stdin_handles_unicode_decode_failure_without_reflection(capsys):
+    from personality_engine.hooks import _read_stdin
+
+    class BrokenInput:
+        def read(self, _limit):
+            raise UnicodeDecodeError("utf-8", b"secret", 0, 1, "private detail")
+
+    with patch.object(sys, "stdin", BrokenInput()):
+        assert _read_stdin() == {}
+    captured = capsys.readouterr()
+    assert captured.err == "[spark-personality] ignored invalid hook input: UnicodeDecodeError\n"
+    assert "private detail" not in captured.err

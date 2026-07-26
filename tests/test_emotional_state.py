@@ -1,9 +1,13 @@
 """Tests for emotional_state module."""
 
 import json
+import math
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from personality_engine.schema import PersonalityChip
 from personality_engine.emotional_state import (
@@ -58,6 +62,13 @@ class TestPADVector:
         assert pad.pleasure == 1.0
         assert pad.arousal == -1.0
         assert pad.dominance == 0.0
+
+    def test_from_dict_coerces_finite_numeric_strings_and_rejects_invalid_numbers(self):
+        pad = PADVector.from_dict({"pleasure": "0.25", "arousal": math.inf, "dominance": True})
+        assert pad == PADVector(0.25, 0.0, 0.0)
+
+    def test_from_dict_clamps_persisted_values(self):
+        assert PADVector.from_dict({"pleasure": 5, "arousal": -5}) == PADVector(1.0, -1.0, 0.0)
 
 
 class TestBaselinePAD:
@@ -125,6 +136,34 @@ class TestUpdateEmotionalState:
         chip = _make_chip()
         pad = update_emotional_state(chip, user_state=None, persist=False)
         assert isinstance(pad, PADVector)
+
+    def test_decay_is_time_proportional(self):
+        chip = _make_chip(
+            agreeableness=0.5,
+            extraversion=0.5,
+            conscientiousness=0.5,
+            neuroticism=0.5,
+            openness=0.5,
+        )
+        with patch("personality_engine.emotional_state._load_state", return_value=(PADVector(1, 1, 1), 80.0)):
+            with patch("personality_engine.emotional_state.time.time", return_value=100.0):
+                pad = update_emotional_state(chip, persist=False)
+        assert pad.pleasure == pytest.approx(0.85 ** 2)
+        assert pad.arousal == pytest.approx(0.85 ** 2)
+        assert pad.dominance == pytest.approx(0.85 ** 2)
+
+    def test_zero_elapsed_time_does_not_decay(self):
+        chip = _make_chip(
+            agreeableness=0.5,
+            extraversion=0.5,
+            conscientiousness=0.5,
+            neuroticism=0.5,
+            openness=0.5,
+        )
+        with patch("personality_engine.emotional_state._load_state", return_value=(PADVector(0.4, 0.3, 0.2), 100.0)):
+            with patch("personality_engine.emotional_state.time.time", return_value=100.0):
+                pad = update_emotional_state(chip, persist=False)
+        assert pad == PADVector(0.4, 0.3, 0.2)
 
 
 class TestPADMappings:
@@ -198,6 +237,13 @@ class TestSaveStateCleanup:
         assert pad == PADVector()
         assert updated_at == 0.0
 
+    def test_load_state_rejects_nonfinite_or_boolean_timestamp(self, tmp_path):
+        state_file = tmp_path / "emotional_state.json"
+        for value in (math.nan, math.inf, True):
+            state_file.write_text(json.dumps({"pad": {}, "updated_at": value}), encoding="utf-8")
+            with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+                assert _load_state() == (PADVector(), 0.0)
+
     def test_save_state_cleans_temp_file_after_replace_failure(self, tmp_path):
         state_file = tmp_path / "emotional_state.json"
 
@@ -218,3 +264,36 @@ class TestSaveStateCleanup:
         assert abs(loaded_pad.arousal - 0.3) < 0.01
         assert abs(loaded_pad.dominance - 0.1) < 0.01
         assert updated_at > 0
+
+    def test_persisted_update_wraps_load_modify_save_in_one_lock(self, tmp_path):
+        events = []
+
+        @contextmanager
+        def recording_lock(path):
+            events.append(("lock", path))
+            yield
+            events.append(("unlock", path))
+
+        state_file = tmp_path / "emotional_state.json"
+        with patch("personality_engine.emotional_state._STATE_FILE", state_file):
+            with patch("personality_engine.emotional_state.exclusive_file_lock", recording_lock):
+                with patch("personality_engine.emotional_state._load_state", side_effect=lambda personality_id: events.append(("load", personality_id)) or (PADVector(), 0.0)):
+                    with patch("personality_engine.emotional_state._save_state", side_effect=lambda pad, personality_id: events.append(("save", personality_id))):
+                        update_emotional_state(_make_chip(), user_state="curious", persist=True)
+
+        assert [event[0] for event in events] == ["lock", "load", "save", "unlock"]
+
+    def test_personality_state_is_isolated(self, tmp_path):
+        with patch("personality_engine.emotional_state._STATE_DIR", tmp_path):
+            first = _make_chip()
+            first.id = "first/personality"
+            second = _make_chip()
+            second.id = "first_personality"
+            update_emotional_state(first, user_state="excited", persist=True)
+            update_emotional_state(second, user_state="frustrated", persist=True)
+
+            first_pad, _ = _load_state(first.id)
+            second_pad, _ = _load_state(second.id)
+
+        assert first_pad != second_pad
+        assert len(list(tmp_path.glob("emotional_state_*.json"))) == 2

@@ -25,14 +25,33 @@ truth, PersonalityEvolver adapts from there.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .prompt_data import bounded_prompt_data
 from .storage import atomic_write_json
 
 IB_STATE_PATH = Path.home() / ".spark" / "personality_evolution_v1.json"
+IB_STATE_ROOT = IB_STATE_PATH.parent
 IB_STATE_VERSION = 1
+logger = logging.getLogger(__name__)
+
+
+def _validate_evolver_state_path(raw: str | Path) -> Path:
+    """Resolve a hook-selected state path inside Spark's private state root."""
+    candidate = Path(raw).expanduser().resolve()
+    root = IB_STATE_ROOT.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "evolver_state_path is outside the allowed Spark state directory."
+        ) from exc
+    if candidate == root:
+        raise ValueError("evolver_state_path must name a file inside Spark state.")
+    return candidate
 
 
 def map_chip_to_evolver_traits(chip) -> dict[str, float]:
@@ -113,8 +132,12 @@ def sync_to_intelligence_builder(
         try:
             existing = json.loads(state_path.read_text(encoding="utf-8"))
             existing_count = int(existing.get("interaction_count", 0))
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError):
-            pass
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "persisted Intelligence Builder state was invalid; "
+                "interaction_count reset to zero (%s)",
+                type(exc).__name__,
+            )
 
     state = {
         "version": IB_STATE_VERSION,
@@ -128,21 +151,27 @@ def sync_to_intelligence_builder(
         },
     }
 
-    state_path.parent.mkdir(parents=True, exist_ok=True)
+    persisted = False
     try:
-        atomic_write_json(state_path, state)
-    except OSError:
-        pass
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        persisted = atomic_write_json(state_path, state)
+    except OSError as exc:
+        logger.warning(
+            "Intelligence Builder state was not persisted (%s)",
+            type(exc).__name__,
+        )
 
+    # Runtime evidence only; the on-disk contract remains unchanged.
+    state["_sync_persisted"] = persisted
     return state
 
 
 def build_builder_persona_summary(chip) -> str:
     """Build a short Builder-facing persona summary from the active chip."""
     parts: list[str] = []
-    voice_signature = str(getattr(chip, "voice_signature", "") or "").strip()
-    tagline = str(getattr(chip, "tagline", "") or "").strip()
-    archetype = str(getattr(chip, "archetype", "") or "").strip()
+    voice_signature = bounded_prompt_data(getattr(chip, "voice_signature", ""))
+    tagline = bounded_prompt_data(getattr(chip, "tagline", ""))
+    archetype = bounded_prompt_data(getattr(chip, "archetype", ""))
     if voice_signature:
         parts.append(voice_signature)
     if tagline:
@@ -155,7 +184,7 @@ def build_builder_persona_summary(chip) -> str:
 def build_builder_behavioral_rules(chip) -> list[str]:
     """Derive Builder-visible style rules from the personality chip."""
     rules: list[str] = []
-    voice_signature = str(getattr(chip, "voice_signature", "") or "").strip()
+    voice_signature = bounded_prompt_data(getattr(chip, "voice_signature", ""))
     if voice_signature:
         rules.append(f"Sound {voice_signature}.")
 
@@ -166,11 +195,11 @@ def build_builder_behavioral_rules(chip) -> list[str]:
     elif verbosity == "detailed":
         rules.append("Explain the why behind recommendations when more context is useful.")
 
-    formality = str(communication.get("formality") or "").strip()
+    formality = bounded_prompt_data(communication.get("formality"))
     if formality:
         rules.append(f"Keep the register {formality}.")
 
-    explanation_style = str(communication.get("explanation_style") or "").strip()
+    explanation_style = bounded_prompt_data(communication.get("explanation_style"))
     if explanation_style:
         rules.append(f"When explanation is needed, prefer a {explanation_style} explanation style.")
 
@@ -187,7 +216,11 @@ def build_builder_behavioral_rules(chip) -> list[str]:
     elif risk_appetite == "conservative":
         rules.append("Bias toward safer reversible moves when tradeoffs are unclear.")
 
-    anti_patterns = [str(item).strip() for item in list(getattr(chip, "anti_patterns", []) or []) if str(item).strip()]
+    anti_patterns = [
+        bounded_prompt_data(item)
+        for item in list(getattr(chip, "anti_patterns", []) or [])
+        if str(item).strip()
+    ]
     rules.extend(item if item.endswith(".") else f"{item}." for item in anti_patterns[:3])
 
     deduped: list[str] = []
@@ -212,7 +245,10 @@ def build_builder_personality_import(
     evolver_state_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build the Spark Intelligence Builder personality-hook result payload."""
-    state_path = Path(evolver_state_path) if evolver_state_path else IB_STATE_PATH
+    state_path = (
+        _validate_evolver_state_path(evolver_state_path)
+        if evolver_state_path else IB_STATE_PATH
+    )
     evolver_state = sync_to_intelligence_builder(chip, state_path=state_path)
     base_traits = dict(evolver_state.get("traits") or map_chip_to_evolver_traits(chip))
     return {

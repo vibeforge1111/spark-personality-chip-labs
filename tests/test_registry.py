@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from personality_engine.loader import load_personality
 from personality_engine.registry import PersonalityRegistry
 from personality_engine.schema import SCHEMA_VERSION, build_personality
 
@@ -115,3 +116,76 @@ def test_registry_restores_installed_chips_on_reload(tmp_path):
     reloaded = registry_b.get_personality("agent-99")
     assert reloaded is not None, "Registry must survive process restart"
     assert reloaded.id == chip.id
+
+
+def test_registry_restores_complete_chip_from_exact_source(tmp_path):
+    source = tmp_path / "source.personality.yaml"
+    source.write_text(
+        """schema: spark-personality-chip.v1
+identity:
+  id: source-backed
+  name: Source Backed
+traits:
+  openness: 0.91
+preferences:
+  likes: [evidence]
+""",
+        encoding="utf-8",
+    )
+    registry_path = tmp_path / "personality_registry.json"
+    chip = load_personality(source)
+    assert chip.source_path == str(source.resolve())
+
+    registry_a = PersonalityRegistry(registry_path)
+    registry_a.install(chip)
+    registry_a.assign("agent-source", chip.id)
+    registry_b = PersonalityRegistry(registry_path)
+
+    restored = registry_b.get_personality("agent-source")
+    assert restored is not None
+    assert restored.openness == 0.91
+    assert restored.likes == ["evidence"]
+    assert restored.source_path == str(source.resolve())
+
+
+def test_registry_falls_back_to_metadata_when_source_disappears(tmp_path):
+    source = tmp_path / "source.personality.yaml"
+    source.write_text(
+        "schema: spark-personality-chip.v1\nidentity: {id: source-backed, name: Source Backed}\n",
+        encoding="utf-8",
+    )
+    registry_path = tmp_path / "personality_registry.json"
+    registry_a = PersonalityRegistry(registry_path)
+    chip = load_personality(source)
+    registry_a.install(chip)
+    registry_a.assign("agent-source", chip.id)
+    source.unlink()
+
+    restored = PersonalityRegistry(registry_path).get_personality("agent-source")
+    assert restored is not None
+    assert restored.id == "source-backed"
+    assert restored.name == "Source Backed"
+    assert restored.source_path == ""
+
+
+def test_registry_rejects_source_identity_drift(tmp_path):
+    source = tmp_path / "source.personality.yaml"
+    source.write_text(
+        "schema: spark-personality-chip.v1\nidentity: {id: original-chip, name: Original}\n",
+        encoding="utf-8",
+    )
+    registry_path = tmp_path / "personality_registry.json"
+    registry_a = PersonalityRegistry(registry_path)
+    chip = load_personality(source)
+    registry_a.install(chip)
+    registry_a.assign("agent-source", chip.id)
+    source.write_text(
+        "schema: spark-personality-chip.v1\nidentity: {id: replacement-chip, name: Replacement}\n",
+        encoding="utf-8",
+    )
+
+    restored = PersonalityRegistry(registry_path).get_personality("agent-source")
+    assert restored is not None
+    assert restored.id == "original-chip"
+    assert restored.name == "Original"
+    assert restored.source_path == ""

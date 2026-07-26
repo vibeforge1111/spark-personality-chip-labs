@@ -16,12 +16,13 @@ Lightweight: ~200 lines, zero external dependencies, no ML inference.
 from __future__ import annotations
 
 import re
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, read_json_object
+from .storage import atomic_write_json, exclusive_file_lock, read_json_object, state_namespace_key
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,10 @@ _EXCITEMENT_CAPS_EXCLUDE = frozenset({
     "POSIX", "MSYS", "MINGW", "WSL", "GPU", "CUDA", "RTOS", "FIFO", "LIFO",
     "NULL", "NONE", "TRUE", "FALSE", "TODO", "FIXME", "HACK", "NOTE", "WARN",
     "ERR", "INFO", "DEBUG", "TRACE", "FATAL",
+    "TUI", "NFC", "JPG", "WEBP", "CORS", "CSRF", "XSS", "SHA", "RSA", "AES",
+    "NTP", "MQTT", "GRPC", "REST", "SOAP", "CRUD", "ORM", "MVC", "OOP", "LLM",
+    "NLP", "ML", "DL", "RAG", "SFT", "LORA", "QLORA", "PAD", "OCEAN", "CI", "CD",
+    "VCS", "PR", "LGTM", "WIP", "FYI", "ETA", "TBD", "TBA",
 })
 
 _SYNTACTIC_PATTERNS: dict[str, list[tuple[str, float]]] = {
@@ -162,13 +167,21 @@ class RoomReading:
 # ---------------------------------------------------------------------------
 
 _TRAJECTORY_FILE = Path.home() / ".cache" / "personality-chips" / "room_trajectory.json"
+_TRAJECTORY_DIR = _TRAJECTORY_FILE.parent
 _WINDOW_SIZE = 8  # Track last N interactions
 _TRAJECTORY_TTL = 1800  # 30 minutes — reset if gap exceeds this
 
 
-def _load_trajectory() -> list[dict]:
+def _get_trajectory_path(personality_id: str = "default") -> Path:
+    """Resolve isolated trajectory state for a personality chip."""
+    if personality_id == "default":
+        return _TRAJECTORY_FILE
+    return _TRAJECTORY_DIR / f"room_trajectory_{state_namespace_key(personality_id)}.json"
+
+
+def _load_trajectory(personality_id: str = "default") -> list[dict]:
     """Load the sliding window of recent readings."""
-    data = read_json_object(_TRAJECTORY_FILE)
+    data = read_json_object(_get_trajectory_path(personality_id))
     if data is None:
         return []
     entries = data.get("entries", [])
@@ -183,10 +196,10 @@ def _load_trajectory() -> list[dict]:
     ]
 
 
-def _save_trajectory(entries: list[dict]) -> None:
+def _save_trajectory(entries: list[dict], personality_id: str = "default") -> None:
     """Persist the sliding window."""
     trimmed = entries[-_WINDOW_SIZE:]
-    atomic_write_json(_TRAJECTORY_FILE, {"entries": trimmed}, raise_on_error=False)
+    atomic_write_json(_get_trajectory_path(personality_id), {"entries": trimmed}, raise_on_error=False)
 
 
 def _compute_trajectory(entries: list[dict], current_score: float) -> str:
@@ -197,7 +210,14 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     if len(entries) < 2:
         return "stable"
 
-    scores = [e.get("score", 0.0) for e in entries[-4:]] + [current_score]
+    scores = [
+        score
+        for entry in entries[-4:]
+        if (score := _validated_score(entry.get("score"))) is not None
+    ]
+    validated_current = _validated_score(current_score)
+    if validated_current is not None:
+        scores.append(validated_current)
     if len(scores) < 3:
         return "stable"
 
@@ -215,11 +235,25 @@ def _compute_trajectory(entries: list[dict], current_score: float) -> str:
     return "stable"
 
 
+def _validated_score(value: object) -> Optional[float]:
+    """Return a finite, bounded trajectory score or reject malformed state."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    score = float(value)
+    if not math.isfinite(score):
+        return None
+    return min(max(score, 0.0), 1.0)
+
+
 # ---------------------------------------------------------------------------
 # Core API
 # ---------------------------------------------------------------------------
 
-def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
+def read_room(
+    text: str,
+    persist_trajectory: bool = True,
+    personality_id: str = "default",
+) -> RoomReading:
     """Read the emotional room from text input.
 
     Analyzes text across three signal layers (keywords, syntax, discourse),
@@ -248,10 +282,11 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
             state_scores[state] = state_scores.get(state, 0.0) + score
             total_signals += hits
 
-    # Layer 2: Syntactic patterns (no IGNORECASE — case matters for structural signals)
+    # Layer 2: Syntactic patterns. ALL CAPS is handled separately below so
+    # ordinary structural signals can match natural sentence capitalization.
     for state, patterns in _SYNTACTIC_PATTERNS.items():
         for pattern, weight in patterns:
-            if re.search(pattern, text):
+            if re.search(pattern, text, re.IGNORECASE):
                 state_scores[state] = state_scores.get(state, 0.0) + weight
                 total_signals += 1
 
@@ -286,16 +321,19 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
         return RoomReading()
 
     # Trajectory tracking
-    trajectory_entries = _load_trajectory() if persist_trajectory else []
-    trajectory = _compute_trajectory(trajectory_entries, confidence)
-
     if persist_trajectory:
-        trajectory_entries.append({
-            "ts": time.time(),
-            "state": primary,
-            "score": round(confidence, 3),
-        })
-        _save_trajectory(trajectory_entries)
+        trajectory_file = _get_trajectory_path(personality_id)
+        with exclusive_file_lock(trajectory_file):
+            trajectory_entries = _load_trajectory(personality_id)
+            trajectory = _compute_trajectory(trajectory_entries, confidence)
+            trajectory_entries.append({
+                "ts": time.time(),
+                "state": primary,
+                "score": round(confidence, 3),
+            })
+            _save_trajectory(trajectory_entries, personality_id)
+    else:
+        trajectory = _compute_trajectory([], confidence)
 
     return RoomReading(
         primary_state=primary,
@@ -306,7 +344,10 @@ def read_room(text: str, persist_trajectory: bool = True) -> RoomReading:
     )
 
 
-def read_room_from_hook_input(tool_input: dict) -> RoomReading:
+def read_room_from_hook_input(
+    tool_input: dict,
+    personality_id: str = "default",
+) -> RoomReading:
     """Read the room from Claude Code hook tool_input dict.
 
     Extracts text from command, description, old_string, new_string,
@@ -318,23 +359,33 @@ def read_room_from_hook_input(tool_input: dict) -> RoomReading:
         if isinstance(val, str) and val.strip():
             text_parts.append(val)
 
-    # File paths can hint at urgency (hotfix, quick-fix, etc.)
+    # Only inspect the basename. Directory names are operational context, not
+    # evidence of the user's emotional state.
     fp = tool_input.get("file_path", "")
     if isinstance(fp, str) and fp:
-        text_parts.append(fp)
+        basename = Path(fp).name
+        if basename:
+            text_parts.append(basename)
 
-    return read_room(" ".join(text_parts)) if text_parts else RoomReading()
+    return (
+        read_room(" ".join(text_parts), personality_id=personality_id)
+        if text_parts else RoomReading()
+    )
 
 
-def get_trajectory_summary() -> dict:
+def get_trajectory_summary(personality_id: str = "default") -> dict:
     """Get a summary of recent emotional trajectory for context injection."""
-    entries = _load_trajectory()
+    entries = _load_trajectory(personality_id)
     if not entries:
         return {"trajectory": "stable", "recent_states": [], "interaction_count": 0}
 
     recent = entries[-_WINDOW_SIZE:]
     states = [e.get("state", "neutral") for e in recent]
-    scores = [e.get("score", 0.0) for e in recent]
+    scores = [
+        score
+        for entry in recent
+        if (score := _validated_score(entry.get("score"))) is not None
+    ]
 
     return {
         "trajectory": _compute_trajectory(recent, scores[-1] if scores else 0.0),

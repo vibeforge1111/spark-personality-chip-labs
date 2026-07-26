@@ -13,6 +13,7 @@ Includes file-based caching with 5-minute TTL for fast hook lookups.
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -181,15 +182,21 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
         try:
             with open(ACTIVE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
             pid = _safe_personality_id(data.get("personality_id", ""))
             ppath = data.get("personality_path")
+            if ppath is not None and not isinstance(ppath, (str, os.PathLike)):
+                ppath = None
             if pid:
                 return pid, ppath
-        except (json.JSONDecodeError, IOError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             pass
 
     # 3. Project-level .personality file
     if project_dir:
+        if not isinstance(project_dir, (str, os.PathLike)):
+            return None, None
         dot_file = Path(project_dir) / ".personality"
         if dot_file.exists():
             try:
@@ -201,7 +208,7 @@ def _resolve_personality_id(project_dir: str = None) -> tuple[Optional[str], Opt
                 )
                 if pid:
                     return pid, None
-            except (IOError, OSError):
+            except (OSError, UnicodeDecodeError):
                 pass
 
     # 4. Nothing active
@@ -222,7 +229,7 @@ def _find_and_load(
     # personality roots (path-traversal / arbitrary-YAML guard), and only if
     # the loaded chip's declared id matches the resolved id (an explicit path
     # cannot override which personality is active).
-    if personality_path:
+    if personality_path and isinstance(personality_path, (str, os.PathLike)):
         p = Path(personality_path).resolve()
         if p.exists() and _is_within_roots(p, _personality_roots()):
             try:
@@ -288,9 +295,17 @@ def _check_file_cache(expected_id: Optional[str] = None) -> Optional[Personality
             data = json.load(f)
     except (json.JSONDecodeError, IOError):
         return None
+    if not isinstance(data, dict):
+        return None
 
     # Check TTL
     cached_at = data.get("cached_at", 0)
+    if (
+        isinstance(cached_at, bool)
+        or not isinstance(cached_at, (int, float))
+        or not math.isfinite(cached_at)
+    ):
+        return None
     if time.time() - cached_at > CACHE_TTL_SECONDS:
         return None
 

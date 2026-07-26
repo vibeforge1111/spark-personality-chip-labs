@@ -11,6 +11,8 @@ Lightweight: Keyword-based detection, no ML inference required.
 """
 
 import json
+import logging
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,10 +27,13 @@ except ImportError:  # pragma: no cover - Windows / non-POSIX
 
 from .schema import PersonalityChip
 
+logger = logging.getLogger(__name__)
+
 # Validate personality_id for safe use in log file paths. Kept permissive
 # (letters, digits, '_' and '-', any case, length 1-64) so legitimate ids are
 # accepted, while '/', '\\', '.', whitespace and '..' are still rejected.
 _VALID_LOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_MAX_HISTORY_TAIL_BYTES = 1_048_576
 
 
 def _safe_log_id(personality_id: str) -> str:
@@ -81,7 +86,7 @@ def observe_response(
     # Calculate composite drift score
     if signals:
         drift_score = min(
-            sum(s["severity"] for s in signals) / len(signals) + len(signals) * 0.05,
+            sum(s["severity"] for s in signals) / len(signals) + min(len(signals), 5) * 0.02,
             1.0
         )
     else:
@@ -121,20 +126,37 @@ def get_drift_history(
     if not log_path.exists():
         return []
 
-    entries = []
-    try:
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-    except IOError:
+    if limit <= 0:
         return []
 
-    return entries[-limit:]
+    entries: list[dict] = []
+    try:
+        file_size = log_path.stat().st_size
+        start = max(0, file_size - _MAX_HISTORY_TAIL_BYTES)
+        with open(log_path, "rb") as f:
+            f.seek(start)
+            tail = f.read(_MAX_HISTORY_TAIL_BYTES)
+    except OSError:
+        return []
+
+    lines = tail.splitlines()
+    if start and lines:
+        # The bounded read may begin halfway through a JSON record.
+        lines = lines[1:]
+    for raw_line in reversed(lines):
+        if not raw_line.strip():
+            continue
+        try:
+            entry = json.loads(raw_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        entries.append(entry)
+        if len(entries) == limit:
+            break
+    entries.reverse()
+    return entries
 
 
 # ── Detection Functions ──
@@ -156,7 +178,12 @@ def _check_anti_patterns(chip: PersonalityChip, text: str) -> list[dict]:
         "urgency": ["act now", "hurry", "immediately", "don't wait", "urgent"],
     }
 
-    for ap in chip.anti_patterns:
+    anti_patterns = chip.anti_patterns
+    if not isinstance(anti_patterns, (list, tuple)):
+        return signals
+    for ap in anti_patterns:
+        if not isinstance(ap, str):
+            continue
         ap_lower = ap.lower()
         matched = False
         for keyword, detectors in violation_patterns.items():
@@ -181,7 +208,7 @@ def _check_voice_consistency(chip: PersonalityChip, text: str) -> list[dict]:
     signals = []
 
     comm = chip.communication
-    if not comm:
+    if not isinstance(comm, dict) or not comm:
         return signals
 
     verbosity = comm.get("verbosity", "moderate")
@@ -246,6 +273,12 @@ def _check_emotional_range(chip: PersonalityChip, text: str) -> list[dict]:
             continue
 
         configured_range = chip.emotional_range.get(emotion, 0.50)
+        if (
+            not isinstance(configured_range, (int, float))
+            or isinstance(configured_range, bool)
+            or not math.isfinite(configured_range)
+        ):
+            continue
 
         # If personality has low range for this emotion but text shows high expression
         if configured_range <= 0.25 and intensity_in_text >= 2:
@@ -271,7 +304,6 @@ def _log_drift(personality_id: str, report: dict) -> None:
     safe_id = _safe_log_id(personality_id)
     if not safe_id:
         return
-    INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = INSIGHTS_DIR / f"personality_{safe_id}.jsonl"
 
     entry = {
@@ -289,6 +321,7 @@ def _log_drift(personality_id: str, report: dict) -> None:
     }
 
     try:
+        INSIGHTS_DIR.mkdir(parents=True, exist_ok=True)
         _rotate_log_if_needed(log_path)
         with open(log_path, "a", encoding="utf-8") as f:
             if fcntl is not None:
@@ -300,8 +333,8 @@ def _log_drift(personality_id: str, report: dict) -> None:
                     fcntl.flock(f, fcntl.LOCK_UN)
             else:
                 f.write(json.dumps(entry) + "\n")
-    except IOError:
-        pass
+    except OSError as exc:
+        logger.warning("drift observation persistence failed: %s", type(exc).__name__)
 
 
 def _rotate_log_if_needed(log_path: Path) -> None:

@@ -171,3 +171,95 @@ def test_corrupt_overlay_produces_warning_not_silent_skip(tmp_path):
     warnings = chip._raw.get("_overlay_load_warnings", [])
     assert len(warnings) >= 1, f"Expected warning for corrupt overlay, got {warnings}"
     assert any("safety.yaml" in w for w in warnings), f"Warning must name safety.yaml: {warnings}"
+
+
+def test_corrupt_custom_overlay_preserves_core_without_reflecting_details(tmp_path):
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    (tmp_path / "personality.yaml").write_text(
+        "identity:\n  id: safe-core\n  name: Safe Core\n", encoding="utf-8"
+    )
+    (tmp_path / "custom.yaml").write_text("secret-path:\n  - [unclosed\n", encoding="utf-8")
+    chip = load_personality(tmp_path)
+    assert chip.id == "safe-core"
+    assert chip._raw["_overlay_load_warnings"] == ["custom.yaml: ParserError"]
+    assert "secret-path" not in chip._raw["_overlay_load_warnings"][0]
+
+
+def test_load_all_skips_symlinked_personality(tmp_path):
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    outside = tmp_path / "outside.personality.yaml"
+    outside.write_text("identity:\n  id: outside-chip\n  name: Outside\n", encoding="utf-8")
+    directory = tmp_path / "chips"
+    directory.mkdir()
+    (directory / "linked.personality.yaml").symlink_to(outside)
+    assert load_all_personalities(directory) == []
+
+
+def test_yaml_loader_accepts_utf8_bom(tmp_path):
+    path = tmp_path / "bom.personality.yaml"
+    path.write_bytes(b"\xef\xbb\xbfidentity:\n  id: bom-chip\n  name: BOM Chip\n")
+    assert load_personality(path).id == "bom-chip"
+
+
+def test_deep_merge_is_bounded_and_preserves_shallow_nested_values():
+    from personality_engine.loader import _MAX_MERGE_DEPTH, _deep_merge
+    base = {"a": {"keep": 1}}
+    _deep_merge(base, {"a": {"add": 2}})
+    assert base == {"a": {"keep": 1, "add": 2}}
+    deep_base, deep_overlay = {}, {}
+    right = deep_overlay
+    for index in range(_MAX_MERGE_DEPTH + 1):
+        right[str(index)] = {}
+        right = right[str(index)]
+    with pytest.raises(RecursionError, match="exceeds"):
+        _deep_merge(deep_base, deep_overlay)
+    assert deep_base == {}
+
+
+def test_overdeep_overlay_is_rejected_atomically(tmp_path):
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    from personality_engine.loader import _MAX_MERGE_DEPTH
+
+    (tmp_path / "personality.yaml").write_text(
+        "identity:\n  id: depth-owner\n  name: Depth Owner\ntraits:\n  openness: 0.7\n",
+        encoding="utf-8",
+    )
+    deep = {}
+    cursor = deep
+    for index in range(_MAX_MERGE_DEPTH + 1):
+        cursor[str(index)] = {}
+        cursor = cursor[str(index)]
+    (tmp_path / "traits.yaml").write_text(yaml.safe_dump(deep), encoding="utf-8")
+
+    chip = load_personality(tmp_path)
+    assert chip.openness == 0.7
+    assert chip._raw["traits"] == {"openness": 0.7}
+    assert chip._raw["_overlay_load_warnings"] == ["traits.yaml: RecursionError"]
+
+
+def test_list_overlay_replaces_base_instead_of_duplicating_it(tmp_path):
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    (tmp_path / "personality.yaml").write_text(
+        "identity:\n  id: list-owner\n  name: List Owner\nstrengths:\n  - trait: old\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "strengths.yaml").write_text("strengths:\n  - trait: new\n", encoding="utf-8")
+    assert [item["trait"] for item in load_personality(tmp_path).strengths] == ["new"]
+
+
+def test_malformed_mapping_overlay_preserves_core_section(tmp_path):
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    (tmp_path / "personality.yaml").write_text(
+        "identity:\n  id: shape-owner\n  name: Shape Owner\ntraits:\n  openness: 0.7\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "traits.yaml").write_text("traits:\n  - malformed\n", encoding="utf-8")
+    chip = load_personality(tmp_path)
+    assert chip.openness == 0.7
+    assert chip._raw["traits"] == {"openness": 0.7}
+    assert chip._raw["_overlay_load_warnings"] == ["traits.yaml: TypeError"]

@@ -22,12 +22,14 @@ Lightweight: ~150 lines, pure math, no external APIs.
 
 from __future__ import annotations
 
+import math
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .storage import atomic_write_json, read_json_object
+from .storage import atomic_write_json, exclusive_file_lock, read_json_object, state_namespace_key
 
 
 # ---------------------------------------------------------------------------
@@ -55,13 +57,14 @@ class PADVector:
 
         def _safe_float(val: object, default: float = 0.0) -> float:
             """Coerce to float, returning default for non-numeric values."""
-            if isinstance(val, (int, float)):
-                return float(val)
-            if isinstance(val, str):
+            if isinstance(val, bool):
+                return default
+            if isinstance(val, (int, float, str)):
                 try:
-                    return float(val)
-                except ValueError:
+                    converted = float(val)
+                except (TypeError, ValueError, OverflowError):
                     return default
+                return converted if math.isfinite(converted) else default
             return default
 
         return cls(
@@ -124,21 +127,35 @@ _PAD_TO_MOOD = {
 # ---------------------------------------------------------------------------
 
 _STATE_FILE = Path.home() / ".cache" / "personality-chips" / "emotional_state.json"
+_STATE_DIR = _STATE_FILE.parent
 _DECAY_RATE = 0.15       # Fraction to decay per update toward baseline
+_DECAY_INTERVAL = 10.0   # Seconds represented by one reference decay step
 _STATE_TTL = 3600        # 1 hour — reset if session gap exceeds this
 
 
-def _load_state() -> tuple[PADVector, float]:
+def _get_state_path(personality_id: str = "default") -> Path:
+    """Resolve isolated state for a chip, retaining the legacy default API."""
+    if personality_id == "default":
+        return _STATE_FILE
+    return _STATE_DIR / f"emotional_state_{state_namespace_key(personality_id)}.json"
+
+
+def _load_state(personality_id: str = "default") -> tuple[PADVector, float]:
     """Load persisted emotional state. Returns (pad, last_update_timestamp)."""
-    if not _STATE_FILE.exists():
+    state_file = _get_state_path(personality_id)
+    if not state_file.exists():
         return PADVector(), 0.0
     try:
-        data = read_json_object(_STATE_FILE)
+        data = read_json_object(state_file)
         if data is None:
             return PADVector(), 0.0
         pad = PADVector.from_dict(data.get("pad", {}))
         ts = data.get("updated_at", 0.0)
-        if not isinstance(ts, (int, float)):
+        if (
+            not isinstance(ts, (int, float))
+            or isinstance(ts, bool)
+            or not math.isfinite(ts)
+        ):
             return PADVector(), 0.0
         if time.time() - ts > _STATE_TTL:
             return PADVector(), 0.0  # Too stale, reset
@@ -147,10 +164,10 @@ def _load_state() -> tuple[PADVector, float]:
         return PADVector(), 0.0
 
 
-def _save_state(pad: PADVector) -> None:
+def _save_state(pad: PADVector, personality_id: str = "default") -> None:
     """Persist emotional state to disk using atomic write."""
     atomic_write_json(
-        _STATE_FILE,
+        _get_state_path(personality_id),
         {"pad": pad.to_dict(), "updated_at": time.time()},
         raise_on_error=False,
     )
@@ -223,25 +240,33 @@ def update_emotional_state(
         Updated PAD vector representing current emotional state
     """
     baseline = get_baseline_pad(chip)
-    current, _ = _load_state()
+    personality_id = chip.id if isinstance(getattr(chip, "id", None), str) and chip.id else "default"
+    state_file = _get_state_path(personality_id)
+    transaction = exclusive_file_lock(state_file) if persist else nullcontext()
+    with transaction:
+        current, updated_at = _load_state(personality_id)
 
-    # Decay toward baseline
-    current = PADVector(
-        pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * _DECAY_RATE,
-        arousal=current.arousal + (baseline.arousal - current.arousal) * _DECAY_RATE,
-        dominance=current.dominance + (baseline.dominance - current.dominance) * _DECAY_RATE,
-    )
+        # Decay toward baseline in proportion to elapsed time. A fresh state
+        # receives one reference interval so startup behavior stays stable.
+        elapsed = time.time() - updated_at if updated_at > 0 else _DECAY_INTERVAL
+        intervals = max(0.0, elapsed / _DECAY_INTERVAL)
+        effective_decay = 1.0 - (1.0 - _DECAY_RATE) ** intervals
+        current = PADVector(
+            pleasure=current.pleasure + (baseline.pleasure - current.pleasure) * effective_decay,
+            arousal=current.arousal + (baseline.arousal - current.arousal) * effective_decay,
+            dominance=current.dominance + (baseline.dominance - current.dominance) * effective_decay,
+        )
 
-    # Apply appraisal from user state
-    delta = appraise(user_state, intensity)
-    current = PADVector(
-        pleasure=current.pleasure + delta.pleasure,
-        arousal=current.arousal + delta.arousal,
-        dominance=current.dominance + delta.dominance,
-    ).clamp()
+        # Apply appraisal from user state
+        delta = appraise(user_state, intensity)
+        current = PADVector(
+            pleasure=current.pleasure + delta.pleasure,
+            arousal=current.arousal + delta.arousal,
+            dominance=current.dominance + delta.dominance,
+        ).clamp()
 
-    if persist:
-        _save_state(current)
+        if persist:
+            _save_state(current, personality_id)
 
     return current
 
@@ -313,10 +338,11 @@ def build_emotional_state_for_bridge(
     }
 
 
-def reset_emotional_state() -> None:
+def reset_emotional_state(personality_id: str = "default") -> None:
     """Reset emotional state (new session or explicit reset)."""
-    if _STATE_FILE.exists():
+    state_file = _get_state_path(personality_id)
+    if state_file.exists():
         try:
-            _STATE_FILE.unlink()
+            state_file.unlink()
         except OSError:
             pass
