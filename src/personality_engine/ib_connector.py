@@ -130,7 +130,10 @@ def sync_to_intelligence_builder(
     existing_count = 0
     if state_path.exists():
         try:
+            try:
             existing = json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Malformed state file {state_path}: {e}") from e
             existing_count = int(existing.get("interaction_count", 0))
         except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError) as exc:
             logger.warning(
@@ -269,6 +272,9 @@ def read_evolver_state(state_path: Path = IB_STATE_PATH) -> Optional[dict]:
     if not state_path.exists():
         return None
     try:
-        return json.loads(state_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Malformed state file {state_path}: {e}") from e
     except (json.JSONDecodeError, OSError):
         return None
