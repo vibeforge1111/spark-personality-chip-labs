@@ -11,6 +11,31 @@ from .ib_connector import build_builder_personality_import
 
 MAX_HOOK_INPUT_BYTES = 1_000_000
 
+# Allowed parent directories for evolver_state_path
+_ALLOWED_EVOLVER_PATHS = (
+    Path.home() / ".spark",
+    Path.home() / ".cache",
+    Path.home() / ".local",
+)
+
+
+def _validate_evolver_state_path(path_str: str | None) -> str | None:
+    """Validate evolver_state_path to prevent arbitrary file writes.
+
+    Only allows paths under ~/.spark, ~/.cache, or ~/.local.
+    Returns None if path_str is None, validated path string otherwise.
+    Raises ValueError if path is outside allowed directories.
+    """
+    if not path_str:
+        return None
+    resolved = Path(path_str).resolve()
+    if not any(str(resolved).startswith(str(p)) for p in _ALLOWED_EVOLVER_PATHS):
+        raise ValueError(
+            f"evolver_state_path must be under ~/.spark, ~/.cache, or ~/.local, "
+            f"got: {resolved}"
+        )
+    return str(resolved)
+
 
 class HookInputError(ValueError):
     """Expected malformed hook input with a stable machine-readable code."""
@@ -53,7 +78,7 @@ def handle_personality_hook(payload: dict[str, Any]) -> dict[str, Any]:
         chip,
         human_id=human_id,
         agent_id=agent_id,
-        evolver_state_path=payload.get("evolver_state_path"),
+        evolver_state_path=_validate_evolver_state_path(payload.get("evolver_state_path")),
     )
     return {
         "returncode": 0,
