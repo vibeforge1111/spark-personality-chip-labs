@@ -73,7 +73,8 @@ def handle_personality_hook(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _write_output(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    from .storage import atomic_write_json
+    atomic_write_json(path, payload)
 
 
 def _read_hook_payload(path: Path) -> dict[str, Any]:
